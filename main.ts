@@ -3,7 +3,7 @@ import * as dotenv from 'dotenv';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 dotenv.config();
-
+const faqData = fs.readFileSync("lib/faq.md").toString()
 // Define channel IDs from env vars
 const HELP_CHANNEL = process.env.HELP_CHANNEL!;
 const TICKETS_CHANNEL = process.env.TICKETS_CHANNEL!;
@@ -205,6 +205,7 @@ async function createTicket(message: { text: string; ts: string; channel: string
             "Please make the potential response really friendly while not being cheesy. " +
             "The summery ideally should be sorter than the question and make it super basic to what the underlying ask is. " +
             "Please have a normal reply tone, for example, if the user asks what is 1+2, you would reply 1+2 is 3. Another example, If the user asks how to get from boston logan to the aquarium, you would reply Take the silver line to the blue line" +
+            `Use the following faq data to help you!: ${faqData}\n` +
             "DO NOT REPOND IN A CODE BLOCK, JUST A PURE JSON. Here is the question:" + message.text
         ));
 
@@ -346,7 +347,13 @@ app.event('message', async ({ event, client, logger }) => {
     if ((event as any).subtype) return; // Skip edited messages, etc.
 
     const message = event as { text: string; ts: string; channel: string; user: string };
-    await createTicket(message, client, logger);
+    await createTicket(message, client, logger); 
+    // send welcome message
+    await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: event.ts,
+        text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F08NW544FMM|Faq> and the "README before asking questions" section!`
+    })
 });
 
 // Listen for thread replies in the help channel to handle claims
@@ -484,6 +491,11 @@ app.event('reaction_added', async ({ event, client, logger }) => {
                 const success = await resolveTicket(ticket.ticketMessageTs, client, logger);
                 if (success) {
                     logger.info(`Ticket resolved via reaction by ${reactionEvent.user} (${isOriginalAuthor ? 'original author' : 'support team member'})`);
+                    client.reactions.add({
+                        name: "done",
+                        timestamp: reactionEvent.item.ts,
+                        channel: reactionEvent.item.channel,
+                      });
                 }
             } else {
                 logger.info(`User ${reactionEvent.user} tried to resolve a ticket via reaction but is not authorized`);
