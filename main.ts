@@ -492,7 +492,7 @@ app.event('reaction_added', async ({ event, client, logger }) => {
                 if (success) {
                     logger.info(`Ticket resolved via reaction by ${reactionEvent.user} (${isOriginalAuthor ? 'original author' : 'support team member'})`);
                     client.reactions.add({
-                        name: "done",
+                        name: "white_check_mark",
                         timestamp: reactionEvent.item.ts,
                         channel: reactionEvent.item.channel,
                       });
