@@ -205,7 +205,7 @@ async function createTicket(message: { text: string; ts: string; channel: string
             "Please make the potential response really friendly while not being cheesy. " +
             "The summery ideally should be sorter than the question and make it super basic to what the underlying ask is. " +
             "Please have a normal reply tone, for example, if the user asks what is 1+2, you would reply 1+2 is 3. Another example, If the user asks how to get from boston logan to the aquarium, you would reply Take the silver line to the blue line" +
-            `Use the following faq data to help you!: ${faqData}\n` +
+            `Use the following faq data to help you!:\n ${faqData}\n` +
             "DO NOT REPOND IN A CODE BLOCK, JUST A PURE JSON. Here is the question:" + message.text
         ));
 
