@@ -199,15 +199,21 @@ function getTicketByTicketTs(ticketTs: string): TicketInfo | null {
 // Function to create a ticket
 async function createTicket(message: { text: string; ts: string; channel: string; user: string }, client, logger) {
     try {
-        const aiResponse = JSON.parse(await fetchAIResponse(
-            "Please return ONLY A JSON of a summery of a users question and a potential response. " +
-            "The JSON should have the accessors of .response & .summary. " +
-            "Please make the potential response really friendly while not being cheesy. " +
-            "The summery ideally should be sorter than the question and make it super basic to what the underlying ask is. " +
-            "Please have a normal reply tone, for example, if the user asks what is 1+2, you would reply 1+2 is 3. Another example, If the user asks how to get from boston logan to the aquarium, you would reply Take the silver line to the blue line" +
-            `Use the following faq data to help you!:\n ${faqData}\n` +
-            "DO NOT REPOND IN A CODE BLOCK, JUST A PURE JSON. Here is the question:" + message.text
-        ));
+        let aiResponse;
+        try {
+            aiResponse = JSON.parse(await fetchAIResponse(
+                `Use the following faq data to help you!:\n ${faqData}\n` +
+                "Please return ONLY A JSON of a summery of a users question and a potential response. " +
+                "The JSON should have the accessors of .response & .summary. " +
+                "Please make the potential response really friendly while not being cheesy. " +
+                "The summery ideally should be sorter than the question and make it super basic to what the underlying ask is. " +
+                "Please have a normal reply tone, for example, if the user asks what is 1+2, you would reply 1+2 is 3. Another example, If the user asks how to get from boston logan to the aquarium, you would reply Take the silver line to the blue line" +
+                "DO NOT REPOND IN A CODE BLOCK, JUST A PURE JSON. Here is the question:" + message.text
+            ));
+        } catch (parseError) {
+            console.error("Failed to parse AI response:", parseError);
+            aiResponse = {response: "Potential response failed", summary: "Summary failed"};
+        }
 
         // Post the ticket message to the tickets channel
         const result = await client.chat.postMessage({
@@ -312,13 +318,30 @@ async function resolveTicket(ticketTs: string, client, logger) {
     try {
         const ticket = getTicketByTicketTs(ticketTs);
         if (!ticket) return false;
+        // Check if the original message still exists before resolving
+        try {
+            const originalMessageCheck = await client.conversations.history({
+                channel: ticket.originalChannel,
+                latest: ticket.originalTs,
+                inclusive: true,
+                limit: 1
+            });
 
-        // Reply to the original thread to notify the user
-        await client.chat.postMessage({
-            channel: ticket.originalChannel,
-            thread_ts: ticket.originalTs,
-            text: `This ticket has been marked as resolved. Please send a new message in <#${HELP_CHANNEL}> to create a new ticket. (new ticket = faster response)`
-        });
+            // If the message doesn't exist or we couldn't find it, log and continue with resolution
+            if (!originalMessageCheck.ok || !originalMessageCheck.messages || originalMessageCheck.messages.length === 0) {
+                logger.warn(`Original message for ticket ${ticketTs} no longer exists or is inaccessible. Proceeding with ticket resolution.`);
+            } else {
+                // Reply to the original thread to notify the user
+                await client.chat.postMessage({
+                    channel: ticket.originalChannel,
+                    thread_ts: ticket.originalTs,
+                    text: `This ticket has been marked as resolved. Please send a new message in <#${HELP_CHANNEL}> to create a new ticket. (new ticket = faster response)`
+                });
+            }
+        } catch (error) {
+            logger.warn(`Failed to check original message for ticket ${ticketTs}:`, error);
+            // Continue with resolution even if we can't verify the original message
+        }
 
         // Delete the ticket message from the tickets channel
         await client.chat.delete({
@@ -347,7 +370,7 @@ app.event('message', async ({ event, client, logger }) => {
     if ((event as any).subtype) return; // Skip edited messages, etc.
 
     const message = event as { text: string; ts: string; channel: string; user: string };
-    await createTicket(message, client, logger); 
+    await createTicket(message, client, logger);
     // send welcome message
     await client.chat.postMessage({
         channel: event.channel,
@@ -495,7 +518,7 @@ app.event('reaction_added', async ({ event, client, logger }) => {
                         name: "white_check_mark",
                         timestamp: reactionEvent.item.ts,
                         channel: reactionEvent.item.channel,
-                      });
+                    });
                 }
             } else {
                 logger.info(`User ${reactionEvent.user} tried to resolve a ticket via reaction but is not authorized`);
@@ -518,7 +541,7 @@ async function fetchAIResponse(userInput) {
             })
         });
 
-        if (!response.ok) throw new Error("Failed to fetch AI response");
+        if (!response.ok) {throw new Error("Failed to fetch AI response");}
 
         const data = await response.json();
         return data.choices?.[0]?.message?.content || "Error: No response content";
