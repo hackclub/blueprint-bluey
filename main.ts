@@ -437,7 +437,7 @@ app.action('mark_resolved', async ({ body, ack, client, logger }) => {
     const ticketTs = (body as any).message?.ts;
     if (!ticketTs) return;
 
-    const success = await resolveTicket(ticketTs, client, logger);
+    const success = await resolveTicket(ticketTs, userId, client, logger);
     if (success) {
         logger.info(`Ticket ${ticketTs} marked as resolved (deleted) by ${userId}`);
     }
@@ -530,7 +530,7 @@ app.event('reaction_added', async ({ event, client, logger }) => {
                 messageInfo.messages[0].user === reactionEvent.user;
 
             if (isOriginalAuthor || isTicketChannelMember(reactionEvent.user)) {
-                const success = await resolveTicket(ticket.ticketMessageTs, client, logger);
+                const success = await resolveTicket(ticket.ticketMessageTs, reactionEvent.user, client, logger);
                 if (success) {
                     logger.info(`Ticket resolved via reaction by ${reactionEvent.user} (${isOriginalAuthor ? 'original author' : 'support team member'})`);
                     client.reactions.add({
