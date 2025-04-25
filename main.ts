@@ -29,17 +29,23 @@ interface ReactionEvent {
     };
     user: string;
 }
-
+interface LBEntry {
+    slack_id: string;
+    count_of_tickets: number;
+}
 const tickets: Record<string, TicketInfo> = {};
 // Additional map to quickly look up tickets by original message timestamp
 const ticketsByOriginalTs: Record<string, string> = {};
 
+// evan this concerns me, why are we saving data in json :heavysob:
+let lbForToday:LBEntry[] = []
 // Function to save ticket data to a file
 async function saveTicketData() {
     try {
         const data = {
             tickets,
-            ticketsByOriginalTs
+            ticketsByOriginalTs,
+            lbForToday
         };
         await fs.writeJSON(DATA_FILE_PATH, data, { spaces: 2 });
         console.log('Ticket data saved to file');
@@ -57,13 +63,16 @@ async function loadTicketData() {
             // Clear existing data first
             Object.keys(tickets).forEach(key => delete tickets[key]);
             Object.keys(ticketsByOriginalTs).forEach(key => delete ticketsByOriginalTs[key]);
-
+            lbForToday=[]
             // Load data from file
             if (data.tickets) {
                 Object.assign(tickets, data.tickets);
             }
             if (data.ticketsByOriginalTs) {
                 Object.assign(ticketsByOriginalTs, data.ticketsByOriginalTs);
+            }
+            if (data.lbForToday) {
+                lbForToday= data.lbForToday
             }
 
             console.log(`Loaded ${Object.keys(tickets).length} tickets from file`);
@@ -314,7 +323,7 @@ async function markTicketAsNotSure(userId: string, ticketTs: string, client, log
 }
 
 // Function to resolve (delete) a ticket
-async function resolveTicket(ticketTs: string, client, logger) {
+async function resolveTicket(ticketTs: string,resolver:string, client, logger) {
     try {
         const ticket = getTicketByTicketTs(ticketTs);
         if (!ticket) return false;
@@ -352,7 +361,16 @@ async function resolveTicket(ticketTs: string, client, logger) {
         // Clean up our records
         delete ticketsByOriginalTs[ticket.originalTs];
         delete tickets[ticketTs];
-
+        const newEntry = Array.from(lbForToday)
+        if (newEntry.find(e => e.slack_id == resolver)) {
+            newEntry[newEntry.findIndex(e=>e.slack_id==resolver)].count_of_tickets += 1
+        } else {
+            newEntry.push({
+                slack_id: resolver,
+                count_of_tickets: 1
+            })
+        }
+        lbForToday.concat(newEntry)
         // Save ticket data after resolving a ticket
         await saveTicketData();
 
@@ -465,6 +483,7 @@ app.action('assign_user', async ({ body, ack, client, logger }) => {
     const ticket = getTicketByTicketTs(ticketTs);
     if (!ticket) return;
 
+    
     try {
         // DM the assigned user
         await client.chat.postMessage({
@@ -549,6 +568,14 @@ async function fetchAIResponse(userInput) {
         return `Error: ${error.message}`;
     }
 }
+async function sendLB() {
+    app.client.chat.postMessage({
+        channel: TICKETS_CHANNEL,
+        text: `Todays top 10 for ticket closes:\n${lbForToday.sort((a,b) => b.count_of_tickets - a.count_of_tickets).map((e,i) => `${i+1} - <@${e.slack_id}> resolved *${e.count_of_tickets}* today!`)}`
+    })
+    lbForToday = []
+    saveTicketData()
+}
 
 // Start the app
 (async () => {
@@ -567,5 +594,7 @@ async function fetchAIResponse(userInput) {
     // Periodically save ticket data (every 5 minutes as a backup)
     setInterval(saveTicketData, 5 * 60 * 1000);
 
+    // interval to send lb
+    setInterval(sendLB, 24*60*60*1000)
     console.log(`⚡️ Slack Bolt app is running!`);
 })();
