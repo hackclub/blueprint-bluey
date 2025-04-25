@@ -323,7 +323,7 @@ async function markTicketAsNotSure(userId: string, ticketTs: string, client, log
 }
 
 // Function to resolve (delete) a ticket
-async function resolveTicket(ticketTs: string, client, logger) {
+async function resolveTicket(ticketTs: string,resolver:string, client, logger) {
     try {
         const ticket = getTicketByTicketTs(ticketTs);
         if (!ticket) return false;
@@ -361,7 +361,16 @@ async function resolveTicket(ticketTs: string, client, logger) {
         // Clean up our records
         delete ticketsByOriginalTs[ticket.originalTs];
         delete tickets[ticketTs];
-
+        const newEntry = Array.from(lbForToday)
+        if (newEntry.find(e => e.slack_id == resolver)) {
+            newEntry[newEntry.findIndex(e=>e.slack_id==resolver)].count_of_tickets += 1
+        } else {
+            newEntry.push({
+                slack_id: resolver,
+                count_of_tickets: 1
+            })
+        }
+        lbForToday.concat(newEntry)
         // Save ticket data after resolving a ticket
         await saveTicketData();
 
@@ -474,6 +483,7 @@ app.action('assign_user', async ({ body, ack, client, logger }) => {
     const ticket = getTicketByTicketTs(ticketTs);
     if (!ticket) return;
 
+    
     try {
         // DM the assigned user
         await client.chat.postMessage({
@@ -558,6 +568,9 @@ async function fetchAIResponse(userInput) {
         return `Error: ${error.message}`;
     }
 }
+async function sendLB() {
+
+}
 
 // Start the app
 (async () => {
@@ -576,5 +589,7 @@ async function fetchAIResponse(userInput) {
     // Periodically save ticket data (every 5 minutes as a backup)
     setInterval(saveTicketData, 5 * 60 * 1000);
 
+    // interval to send lb
+    setInterval(sendLB, 24*60*60*1000)
     console.log(`⚡️ Slack Bolt app is running!`);
 })();
