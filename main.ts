@@ -569,7 +569,12 @@ async function fetchAIResponse(userInput) {
     }
 }
 async function sendLB() {
-
+    app.client.chat.postMessage({
+        channel: TICKETS_CHANNEL,
+        text: `Todays top 10 for ticket closes:\n${lbForToday.sort((a,b) => b.count_of_tickets - a.count_of_tickets).map((e,i) => `${i+1} - <@${e.slack_id}> resolved *${e.count_of_tickets}* today!`)}`
+    })
+    lbForToday = []
+    saveTicketData()
 }
 
 // Start the app
