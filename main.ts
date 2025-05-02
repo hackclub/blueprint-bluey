@@ -4,6 +4,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 dotenv.config();
 const faqData = fs.readFileSync("lib/faq.md").toString()
+const detailsData = fs.readFileSync("lib/details.md").toString() // Added details.md
 // Define channel IDs from env vars
 const HELP_CHANNEL = process.env.HELP_CHANNEL!;
 const TICKETS_CHANNEL = process.env.TICKETS_CHANNEL!;
@@ -18,7 +19,6 @@ interface TicketInfo {
     claimers: string[];
     notSure: string[];
     AIQuickResponse: string;
-    AIQuestionSummery: string;
 }
 
 interface ReactionEvent {
@@ -100,9 +100,11 @@ function formatTs(ts: string): string {
     return ts.replace('.', '');
 }
 
-function createTicketBlocks(AIQuestionSummery: string, AIQuickResponse: string, originalMessageChannelID: string, originalMessageTs: string, claimText?: string): any[] {
+function createTicketBlocks(AIQuickResponse: string, originalMessageChannelID: string, originalMessageTs: string, claimText?: string, showAIResponse: boolean = false): any[] {
     const headerText = claimText ? claimText : 'Not Claimed';
-    return [
+
+    // Start with the header section
+    const blocks = [
         {
             type: "section",
             text: {
@@ -110,65 +112,78 @@ function createTicketBlocks(AIQuestionSummery: string, AIQuickResponse: string, 
                 text: "*" + headerText + "*",
                 // emoji: true
             }
-        },
-        {
-            type: "section",
-            text: {
-                type: "mrkdwn",
-                text: `*AI summary:* ${AIQuestionSummery}`
-            }
-        },
-        {
+        }
+    ];
+
+    if (showAIResponse) {
+        blocks.push({
             type: "section",
             text: {
                 type: "mrkdwn",
                 text: `*Quick response:* ${AIQuickResponse}`
             }
-        },
-        {
-            type: "actions",
-            elements: [
-                {
-                    type: "button",
-                    style: "primary",
-                    text: {
-                        type: "plain_text",
-                        text: "Mark Resolved",
-                        emoji: true
-                    },
-                    value: "claim_button",
-                    action_id: "mark_resolved"
+        });
+    }
+
+    // Add action buttons
+    blocks.push({
+        type: "actions",
+        //@ts-ignore
+        elements: [
+            {
+                type: "button",
+                style: "primary",
+                text: {
+                    type: "plain_text",
+                    text: "Mark Resolved",
+                    emoji: true
                 },
-                {
-                    type: "button",
-                    style: "danger",
-                    text: {
-                        type: "plain_text",
-                        text: "Seen, Not Sure",
-                        emoji: true
-                    },
-                    value: "not_sure_button",
-                    action_id: "not_sure"
+                value: "claim_button",
+                action_id: "mark_resolved"
+            },
+            {
+                type: "button",
+                style: "danger",
+                text: {
+                    type: "plain_text",
+                    text: "Seen, Not Sure",
+                    emoji: true
                 },
-                {
-                    type: "users_select",
-                    placeholder: {
-                        type: "plain_text",
-                        text: "Assign (will DM assignee)",
-                        emoji: true
-                    },
-                    action_id: "assign_user"
-                }
-            ]
-        },
-        {
-            type: "section",
-            text: {
-                type: "mrkdwn",
-                text: `<https://${process.env.SLACK_WORKSPACE_DOMAIN || 'yourworkspace.slack.com'}.slack.com/archives/${originalMessageChannelID}/p${formatTs(originalMessageTs)}|View Thread>`
+                value: "not_sure_button",
+                action_id: "not_sure"
+            },
+            {
+                type: "button",
+                text: {
+                    type: "plain_text",
+                    text: showAIResponse ? "Hide AI Response" : "Show AI Response",
+                    emoji: true
+                },
+                value: showAIResponse ? "hide_ai_response" : "show_ai_response",
+                action_id: showAIResponse ? "hide_ai_response" : "show_ai_response"
+            },
+            {
+                type: "users_select",
+                placeholder: {
+                    type: "plain_text",
+                    text: "Assign (will DM assignee)",
+                    emoji: true
+                },
+                action_id: "assign_user"
             }
+        ]
+    });
+
+    // Add thread link
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: `<https://${process.env.SLACK_WORKSPACE_DOMAIN || 'yourworkspace.slack.com'}.slack.com/archives/${originalMessageChannelID}/p${formatTs(originalMessageTs)}|View Thread>`
         }
-    ];
+    });
+
+    return blocks;
 }
 
 // Function to refresh the list of ticket channel members
@@ -211,24 +226,24 @@ async function createTicket(message: { text: string; ts: string; channel: string
         let aiResponse;
         try {
             aiResponse = JSON.parse(await fetchAIResponse(
-                `Use the following faq data to help you!:\n ${faqData}\n` +
-                "Please return ONLY A JSON of a summery of a users question and a potential response. " +
-                "The JSON should have the accessors of .response & .summary. " +
+                `Use the following data to help you!:\n ${faqData}\n` +
+                `Shipwrecked Event Details:\n ${detailsData}\n` +
+                "Please return ONLY A JSON with a potential response. " +
+                "The JSON should have the accessor of .response. " +
                 "Please make the potential response really friendly while not being cheesy. " +
-                "The summery ideally should be sorter than the question and make it super basic to what the underlying ask is. " +
                 "Please have a normal reply tone, for example, if the user asks what is 1+2, you would reply 1+2 is 3. Another example, If the user asks how to get from boston logan to the aquarium, you would reply Take the silver line to the blue line" +
                 "DO NOT REPOND IN A CODE BLOCK, JUST A PURE JSON. Here is the question:" + message.text
             ));
         } catch (parseError) {
             console.error("Failed to parse AI response:", parseError);
-            aiResponse = { response: "Potential response failed", summary: "Summary failed" };
+            aiResponse = {  response: "I couldn't generate a response. Please try again or contact a staff member directly."  };
         }
 
         // Post the ticket message to the tickets channel
         const result = await client.chat.postMessage({
             text: "Open to view message",
             channel: TICKETS_CHANNEL,
-            blocks: createTicketBlocks(aiResponse.summary, aiResponse.response, message.channel, message.ts)
+            blocks: createTicketBlocks(aiResponse.response, message.channel, message.ts)
         });
 
         if (result.ok && result.ts) {
@@ -239,8 +254,7 @@ async function createTicket(message: { text: string; ts: string; channel: string
                 ticketMessageTs: result.ts,
                 claimers: [],
                 notSure: [],
-                AIQuickResponse: aiResponse.response,
-                AIQuestionSummery: aiResponse.summary
+                AIQuickResponse: aiResponse.response
             };
 
             tickets[result.ts] = ticketInfo;
@@ -260,7 +274,7 @@ async function createTicket(message: { text: string; ts: string; channel: string
 }
 
 // Function to update a ticket message with new information
-async function updateTicketMessage(ticket: TicketInfo, client, logger) {
+async function updateTicketMessage(ticket: TicketInfo, client, logger, showAIResponse: boolean = false) {
     if (!ticket) return false;
 
     try {
@@ -279,11 +293,11 @@ async function updateTicketMessage(ticket: TicketInfo, client, logger) {
             ts: ticket.ticketMessageTs,
             text: "Open to view message",
             blocks: createTicketBlocks(
-                ticket.AIQuestionSummery,
                 ticket.AIQuickResponse,
                 ticket.originalChannel,
                 ticket.originalTs,
-                headerText
+                headerText,
+                showAIResponse
             )
         });
 
@@ -495,6 +509,48 @@ app.action('assign_user', async ({ body, ack, client, logger }) => {
         logger.info(`User ${selectedUser} was assigned ticket ${ticketTs}`);
     } catch (error) {
         logger.error(error);
+    }
+});
+
+app.action('show_ai_response', async ({ body, ack, client, logger }) => {
+    await ack();
+
+    const userId = (body.user || {}).id;
+    if (!isTicketChannelMember(userId)) {
+        logger.info(`User ${userId} tried to show AI response but is not in the tickets channel`);
+        return;
+    }
+
+    const ticketTs = (body as any).message?.ts;
+    if (!ticketTs) return;
+
+    const ticket = getTicketByTicketTs(ticketTs);
+    if (!ticket) return;
+
+    const success = await updateTicketMessage(ticket, client, logger, true);
+    if (success) {
+        logger.info(`AI response for ticket ${ticketTs} shown by ${userId}`);
+    }
+});
+
+app.action('hide_ai_response', async ({ body, ack, client, logger }) => {
+    await ack();
+
+    const userId = (body.user || {}).id;
+    if (!isTicketChannelMember(userId)) {
+        logger.info(`User ${userId} tried to hide AI response but is not in the tickets channel`);
+        return;
+    }
+
+    const ticketTs = (body as any).message?.ts;
+    if (!ticketTs) return;
+
+    const ticket = getTicketByTicketTs(ticketTs);
+    if (!ticket) return;
+
+    const success = await updateTicketMessage(ticket, client, logger, false);
+    if (success) {
+        logger.info(`AI response for ticket ${ticketTs} hidden by ${userId}`);
     }
 });
 
