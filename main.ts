@@ -128,6 +128,7 @@ function createTicketBlocks(AIQuickResponse: string, originalMessageChannelID: s
     // Add action buttons
     blocks.push({
         type: "actions",
+        //@ts-ignore
         elements: [
             {
                 type: "button",
