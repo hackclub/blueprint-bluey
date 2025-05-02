@@ -235,7 +235,7 @@ async function createTicket(message: { text: string; ts: string; channel: string
             ));
         } catch (parseError) {
             console.error("Failed to parse AI response:", parseError);
-            aiResponse = { response: "I couldn't generate a response. Please try again or contact a staff member directly." };
+            aiResponse = {  response: "I couldn't generate a response. Please try again or contact a staff member directly."  };
         }
 
         // Post the ticket message to the tickets channel
@@ -375,15 +375,16 @@ async function resolveTicket(ticketTs: string, resolver: string, client, logger)
         delete ticketsByOriginalTs[ticket.originalTs];
         delete tickets[ticketTs];
         const newEntry = Array.from(lbForToday)
-        if (newEntry.find(e => e.slack_id == resolver)) {
-            newEntry[newEntry.findIndex(e => e.slack_id == resolver)].count_of_tickets += 1
+        const existingEntryIndex = newEntry.findIndex(e => e.slack_id === resolver);
+        if (existingEntryIndex !== -1) {
+            newEntry[existingEntryIndex].count_of_tickets += 1;
         } else {
             newEntry.push({
                 slack_id: resolver,
                 count_of_tickets: 1
-            })
+            });
         }
-        lbForToday.concat(newEntry)
+        lbForToday = newEntry; // Assign the updated array back
         // Save ticket data after resolving a ticket
         await saveTicketData();
 
