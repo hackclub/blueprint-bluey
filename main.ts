@@ -38,7 +38,7 @@ const tickets: Record<string, TicketInfo> = {};
 const ticketsByOriginalTs: Record<string, string> = {};
 
 // evan this concerns me, why are we saving data in json :heavysob:
-let lbForToday:LBEntry[] = []
+let lbForToday: LBEntry[] = []
 // Function to save ticket data to a file
 async function saveTicketData() {
     try {
@@ -63,7 +63,7 @@ async function loadTicketData() {
             // Clear existing data first
             Object.keys(tickets).forEach(key => delete tickets[key]);
             Object.keys(ticketsByOriginalTs).forEach(key => delete ticketsByOriginalTs[key]);
-            lbForToday=[]
+            lbForToday = []
             // Load data from file
             if (data.tickets) {
                 Object.assign(tickets, data.tickets);
@@ -72,7 +72,7 @@ async function loadTicketData() {
                 Object.assign(ticketsByOriginalTs, data.ticketsByOriginalTs);
             }
             if (data.lbForToday) {
-                lbForToday= data.lbForToday
+                lbForToday = data.lbForToday
             }
 
             console.log(`Loaded ${Object.keys(tickets).length} tickets from file`);
@@ -221,7 +221,7 @@ async function createTicket(message: { text: string; ts: string; channel: string
             ));
         } catch (parseError) {
             console.error("Failed to parse AI response:", parseError);
-            aiResponse = {response: "Potential response failed", summary: "Summary failed"};
+            aiResponse = { response: "Potential response failed", summary: "Summary failed" };
         }
 
         // Post the ticket message to the tickets channel
@@ -323,7 +323,7 @@ async function markTicketAsNotSure(userId: string, ticketTs: string, client, log
 }
 
 // Function to resolve (delete) a ticket
-async function resolveTicket(ticketTs: string,resolver:string, client, logger) {
+async function resolveTicket(ticketTs: string, resolver: string, client, logger) {
     try {
         const ticket = getTicketByTicketTs(ticketTs);
         if (!ticket) return false;
@@ -362,15 +362,16 @@ async function resolveTicket(ticketTs: string,resolver:string, client, logger) {
         delete ticketsByOriginalTs[ticket.originalTs];
         delete tickets[ticketTs];
         const newEntry = Array.from(lbForToday)
-        if (newEntry.find(e => e.slack_id == resolver)) {
-            newEntry[newEntry.findIndex(e=>e.slack_id==resolver)].count_of_tickets += 1
+        const existingEntryIndex = newEntry.findIndex(e => e.slack_id === resolver);
+        if (existingEntryIndex !== -1) {
+            newEntry[existingEntryIndex].count_of_tickets += 1;
         } else {
             newEntry.push({
                 slack_id: resolver,
                 count_of_tickets: 1
-            })
+            });
         }
-        lbForToday.concat(newEntry)
+        lbForToday = newEntry; // Assign the updated array back
         // Save ticket data after resolving a ticket
         await saveTicketData();
 
@@ -483,7 +484,7 @@ app.action('assign_user', async ({ body, ack, client, logger }) => {
     const ticket = getTicketByTicketTs(ticketTs);
     if (!ticket) return;
 
-    
+
     try {
         // DM the assigned user
         await client.chat.postMessage({
@@ -560,7 +561,7 @@ async function fetchAIResponse(userInput) {
             })
         });
 
-        if (!response.ok) {throw new Error("Failed to fetch AI response");}
+        if (!response.ok) { throw new Error("Failed to fetch AI response"); }
 
         const data = await response.json();
         return data.choices?.[0]?.message?.content || "Error: No response content";
@@ -571,7 +572,7 @@ async function fetchAIResponse(userInput) {
 async function sendLB() {
     app.client.chat.postMessage({
         channel: TICKETS_CHANNEL,
-        text: `Todays top 10 for ticket closes:\n${lbForToday.sort((a,b) => b.count_of_tickets - a.count_of_tickets).map((e,i) => `${i+1} - <@${e.slack_id}> resolved *${e.count_of_tickets}* today!`)}`
+        text: `Todays top 10 for ticket closes:\n${lbForToday.sort((a, b) => b.count_of_tickets - a.count_of_tickets).map((e, i) => `${i + 1} - <@${e.slack_id}> resolved *${e.count_of_tickets}* today!`)}`
     })
     lbForToday = []
     saveTicketData()
@@ -595,6 +596,6 @@ async function sendLB() {
     setInterval(saveTicketData, 5 * 60 * 1000);
 
     // interval to send lb
-    setInterval(sendLB, 24*60*60*1000)
+    setInterval(sendLB, 24 * 60 * 60 * 1000)
     console.log(`⚡️ Slack Bolt app is running!`);
 })();
