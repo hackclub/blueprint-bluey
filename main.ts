@@ -420,41 +420,41 @@ app.event('message', async ({ event, client, logger }) => {
         text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F08NW544FMM|Faq> and the "README before asking questions" section!`
     })
 
-  event = event as GenericMessageEvent;
+    event = event as GenericMessageEvent;
 
-  // TODO: fix type
-  const text = extractPlaintextFromMessage({
-    blocks: event.blocks ?? [],
-  } as any);
-  if (!text || text.length === 0) return;
+    // TODO: fix type
+    const text = extractPlaintextFromMessage({
+        blocks: event.blocks ?? [],
+    } as any);
+    if (!text || text.length === 0) return;
 
-  const answer = await answerQuestion(text);
-  console.log(answer);
-  if (!answer.hasAnswer) return;
+    const answer = await answerQuestion(text);
+    console.log(answer);
+    if (!answer.hasAnswer) return;
 
-  await client.chat.postMessage({
-    channel: event.channel,
-    thread_ts: event.ts,
-    text: answer.answer,
-    blocks: [
-      {
-        type: "markdown",
+    await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: event.ts,
         text: answer.answer,
-      },
-      {
-        type: "divider",
-      },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `Sources: ${answer.sources
-            ?.map((s, i) => `<${s}|#${i + 1}>`)
-            .join(" ")}`,
+        blocks: [
+        {
+            type: "markdown",
+            text: answer.answer,
         },
-      },
-    ],
-  });
+        {
+            type: "divider",
+        },
+        {
+            type: "section",
+            text: {
+            type: "mrkdwn",
+            text: `Sources: ${answer.sources
+                ?.map((s, i) => `<${s}|#${i + 1}>`)
+                .join(" ")}`,
+            },
+        },
+        ],
+    });
 });
 
 // Listen for thread replies in the help channel to handle claims
@@ -812,3 +812,30 @@ const storeThread = async (thread: MessageElement[]) => {
 //     }
 //   }
 // }
+
+// Start the app
+(async () => {
+
+    const previousMessages = await app.client.conversations.history({
+        channel: HELP_CHANNEL,
+    });
+    
+    // Load ticket data from file before starting the app
+    await loadTicketData();
+
+    await app.start();
+
+    // Initialize the ticket channel members cache
+    const client = app.client;
+    await refreshTicketChannelMembers(client);
+
+    // Refresh the ticket channel members list every hour
+    setInterval(() => refreshTicketChannelMembers(client), 60 * 60 * 1000);
+
+    // Periodically save ticket data (every 5 minutes as a backup)
+    setInterval(saveTicketData, 5 * 60 * 1000);
+
+    // interval to send lb
+    setInterval(sendLB, 24*60*60*1000)
+    console.log(`⚡️ Slack Bolt app is running!`);
+})();
