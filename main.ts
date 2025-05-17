@@ -101,10 +101,6 @@ const app = new App({
     logLevel: LogLevel.WARN,
 });
 
-const previousMessages = await app.client.conversations.history({
-  channel: HELP_CHANNEL,
-});
-
 // Cache of ticket channel members (user IDs)
 let ticketChannelMembers: string[] = [];
 
@@ -696,6 +692,11 @@ async function sendLB() {
 
 // Start the app
 (async () => {
+
+    const previousMessages = await app.client.conversations.history({
+        channel: HELP_CHANNEL,
+    });
+    
     // Load ticket data from file before starting the app
     await loadTicketData();
 
