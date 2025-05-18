@@ -10,42 +10,13 @@ import type {
   ChatCompletionTool,
   ChatCompletionToolChoiceOption,
 } from "openai/resources.mjs";
-import * as dotenv from 'dotenv';
+import * as dotenv from "dotenv";
 
 dotenv.config();
 
 const openai = new OpenAI({
   baseURL: "https://ai.hackclub.com",
 });
-
-
-// Function to determine if text is a question using AI
-async function isQuestionAI(text: string): Promise<boolean> {
-  try {
-    const response = await openai.chat.completions.create({
-      model: "", //google/gemini-2.0-flash-001",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Determine if the following text is a question that requires information. Respond with only 'true' or 'false'.",
-        },
-        {
-          role: "user",
-          content: text,
-        },
-      ],
-      temperature: 0.1,
-    });
-
-    const result = response.choices[0]?.message.content?.trim().toLowerCase();
-    return result === "true";
-  } catch (error) {
-    console.error("Error determining if text is a question:", error);
-    // Default to treating it as a question if there's an error
-    return true;
-  }
-}
 
 export type QuestionAnswerPair = {
   question: string;
@@ -54,19 +25,21 @@ export type QuestionAnswerPair = {
 };
 
 export const parseQAs = async (thread: MessageElement[]) => {
-
   let numTries = 0;
   const maxTries = 3;
+
+  const actualThread = thread.filter(
+    (message) => message.user !== process.env.BOT_ID
+  );
 
   while (numTries < maxTries) {
     try {
       const completion = await openai.chat.completions.create({
-        model: "",//google/gemini-2.0-flash-exp:free",
+        model: "", //google/gemini-2.0-flash-exp:free",
         messages: [
           {
             role: "system",
-            content:
-              `
+            content: `
               You are a Slack thread parser for a help desk. Given a Slack thread, extract question/answer pairs.
 
               Guidelines:
@@ -99,7 +72,7 @@ export const parseQAs = async (thread: MessageElement[]) => {
           },
           {
             role: "user",
-            content: formatThread(thread),
+            content: formatThread(actualThread),
           },
         ],
         response_format: {
@@ -147,7 +120,9 @@ export const parseQAs = async (thread: MessageElement[]) => {
         },
       });
 
-      const response = JSON.parse(completion.choices[0]?.message?.content ?? "[]");
+      const response = JSON.parse(
+        completion.choices[0]?.message?.content ?? "[]"
+      );
 
       const pairs = response.qa_pairs as QuestionAnswerPair[];
 
@@ -164,7 +139,6 @@ export const parseQAs = async (thread: MessageElement[]) => {
       }));
 
       return processedPairs;
-
     } catch (error) {
       console.error("Error parsing thread:", error);
       numTries++;
