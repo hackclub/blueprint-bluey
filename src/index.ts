@@ -1,8 +1,16 @@
 // test- ignore me
 import { App, LogLevel } from '@slack/bolt';
+import { type GenericMessageEvent } from "@slack/web-api";
+import { answerQuestion, parseQAs } from "./ai";
+import { generateEmbedding } from "./embedding";
+import { db } from "./db";
+import { questionsTable, citationsTable } from "./schema";
+import { extractPlaintextFromMessage } from "./utils";
+import type { MessageElement } from "@slack/web-api/dist/types/response/ConversationsRepliesResponse";
 import * as dotenv from 'dotenv';
 import * as fs from 'fs-extra';
 import * as path from 'path';
+
 dotenv.config();
 const faqData = fs.readFileSync("lib/faq.md").toString()
 const detailsData = fs.readFileSync("lib/details.md").toString() // Added details.md
@@ -338,7 +346,7 @@ async function markTicketAsNotSure(userId: string, ticketTs: string, client, log
 }
 
 // Function to resolve (delete) a ticket
-async function resolveTicket(ticketTs: string, resolver: string, client, logger) {
+async function resolveTicket(ticketTs: string, resolver: string, client, logger, ai: boolean = false) {
     try {
         const ticket = getTicketByTicketTs(ticketTs);
         if (!ticket) return false;
@@ -359,7 +367,7 @@ async function resolveTicket(ticketTs: string, resolver: string, client, logger)
                 await client.chat.postMessage({
                     channel: ticket.originalChannel,
                     thread_ts: ticket.originalTs,
-                    text: `This ticket has been marked as resolved. Please send a new message in <#${HELP_CHANNEL}> to create a new ticket. (new ticket = faster response)`
+                    text: `:white_check_mark: This ticket has been marked as resolved. Please send a new message in <#${HELP_CHANNEL}> to create a new ticket if you have another question. ${ai ? "" : "You're welcome to continue asking follow-up questions in this thread!"}`
                 });
             }
         } catch (error) {
@@ -409,8 +417,88 @@ app.event('message', async ({ event, client, logger }) => {
     await client.chat.postMessage({
         channel: event.channel,
         thread_ts: event.ts,
-        text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F08NW544FMM|Faq> and the "README before asking questions" section!`
+        text: `:wave-pikachu-2: Thank you for creating a ticket! Someone will help you soon. Make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F08NW544FMM|Faq> to see if it answers your question!`
     })
+
+    event = event as GenericMessageEvent;
+
+    // TODO: fix type
+    const text = extractPlaintextFromMessage({
+        blocks: event.blocks ?? [],
+    } as any);
+    if (!text || text.length === 0) return;
+
+    const answer = await answerQuestion(text);
+    console.log(answer);
+    if (!answer.hasAnswer) return;
+
+    await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: event.ts,
+        text: answer.answer,
+        unfurl_links: true,
+        unfurl_media: true,
+        blocks: [
+            // {
+            //     type: "markdown",
+            //     text: answer.answer,
+            // },
+            // {
+            //     type: "divider",
+            // },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `Here are some previous answers to similar questions I found: ${answer.sources
+                        ?.map((s, i) => `<${s}|#${i + 1}>`)
+                        .join(" ")}`,
+                },
+            },
+        ],
+    });
+    await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: event.ts,
+        text: answer.answer,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "Does that answer your question?",
+                },
+            },
+            {
+                type: "actions",
+                //@ts-ignore
+                elements: [
+                    {
+                        type: "button",
+                        style: "primary",
+                        text: {
+                            type: "plain_text",
+                            text: "Yes",
+                            emoji: true
+                        },
+                        value: "answer_helped_button",
+                        action_id: "ai_mark_resolved"
+                    },
+                    // {
+                    //     type: "button",
+                    //     style: "danger",
+                    //     text: {
+                    //         type: "plain_text",
+                    //         text: "No",
+                    //         emoji: true
+                    //     },
+                    //     value: "answer_didnt_help_button",
+                    //     action_id: "respond_didnt_help"
+                    // }
+                ]
+            }
+        ],
+    });
 });
 
 // Listen for thread replies in the help channel to handle claims
@@ -555,6 +643,32 @@ app.action('hide_ai_response', async ({ body, ack, client, logger }) => {
     }
 });
 
+app.action('ai_mark_resolved', async ({ body, ack, client, logger }) => {
+    await ack();
+
+    const userId = (body.user || {}).id;
+    const channelId = (body as any).channel.id;
+    const messageTs = (body as any).message.thread_ts || (body as any).message.ts;
+    
+    try {
+        await client.reactions.add({
+            channel: channelId,
+            timestamp: messageTs,
+            name: "white_check_mark"
+        });
+
+        const ticket = getTicketByOriginalTs(messageTs);
+        if (ticket) {
+            const success = await resolveTicket(ticket.ticketMessageTs, userId || "AI-resolved", client, logger, true);
+            if (success) {
+                logger.info(`Ticket ${ticket.ticketMessageTs} resolved by AI answer marked by user ${userId}`);
+            }
+        }
+    } catch (error) {
+        logger.error("Error in ai_mark_resolved:", error);
+    }
+});
+
 // Listen for reaction added events to resolve tickets
 app.event('reaction_added', async ({ event, client, logger }) => {
     const reactionEvent = event as ReactionEvent;
@@ -567,6 +681,17 @@ app.event('reaction_added', async ({ event, client, logger }) => {
 
     // Check for the check mark reaction in the help channel
     if (reactionEvent.reaction === 'white_check_mark' && reactionEvent.item.channel === HELP_CHANNEL) {
+
+        const replies = await client.conversations.replies({
+            channel: HELP_CHANNEL,
+            ts: event.item.ts,
+        });
+
+        const thread = replies.messages;
+        if (!thread) return;
+
+        await storeThread(thread);
+
         // Get the ticket by its original timestamp
         const ticket = getTicketByOriginalTs(reactionEvent.item.ts);
         if (!ticket) return;
@@ -635,8 +760,110 @@ async function sendLB() {
     saveTicketData()
 }
 
+const storeThread = async (thread: MessageElement[]) => {
+  const qas = await parseQAs(thread);
+  if (!qas || qas.length === 0) return;
+
+  for (const qa of qas) {
+    const embedding = await generateEmbedding(qa.question);
+    if (!embedding) continue;
+
+    const question = qa.question;
+    const answer = qa.answer;
+    const citations = qa.citations;
+
+    // Store citation content and get citation IDs
+    const citationIds = [];
+
+    for (const c of citations) {
+      const messageIndex = c - 1;
+      if (!thread[messageIndex] || !thread[messageIndex].ts) continue;
+
+      const message = thread[messageIndex];
+      const messageTs = message.ts!;
+      const content = extractPlaintextFromMessage(message as any);
+
+      // Get username from either the real_name, name, or user_id
+      let username = "Unknown User";
+      if (message.user) {
+        try {
+          // Try to get user info
+          const userInfo = await app.client.users.info({
+            user: message.user,
+          });
+
+          if (userInfo.user) {
+            username =
+              userInfo.user.real_name || userInfo.user.name || message.user;
+          } else {
+            username = message.user;
+          }
+        } catch (error) {
+          console.error("Error fetching user info:", error);
+          username = message.user;
+        }
+      }
+
+      const permalinkRes = await app.client.chat.getPermalink({
+        channel: HELP_CHANNEL,
+        message_ts: messageTs,
+      });
+
+      const permalink = permalinkRes.permalink!;
+
+      // Insert citation into citations table
+      const [citationRecord] = await db
+        .insert(citationsTable)
+        .values({
+          permalink,
+          content: content || "No content available",
+          timestamp: messageTs,
+          username,
+        })
+        .returning({ id: citationsTable.id });
+
+      if (citationRecord) {
+        citationIds.push(citationRecord.id);
+      }
+    }
+
+    // Insert question with citation IDs
+    await db.insert(questionsTable).values({
+      question,
+      answer,
+      citationIds,
+      embedding,
+    });
+
+    console.log("Stored question:", question);
+  }
+};
+
 // Start the app
 (async () => {
+
+    const previousMessages = await app.client.conversations.history({
+        channel: HELP_CHANNEL,
+    });
+
+    for (const msg of previousMessages.messages ?? []) {
+    if (msg.reactions && msg.reactions.length > 0) {
+        if (msg.reactions.some((r) => r.name === "white_check_mark")) {
+        if (!msg.ts) continue;
+
+        const replies = await app.client.conversations.replies({
+            channel: HELP_CHANNEL,
+            ts: msg.ts,
+        });
+
+        const thread = replies.messages;
+        if (!thread) continue;
+
+        await storeThread(thread);
+        }
+    }
+    }
+    
     // Load ticket data from file before starting the app
     await loadTicketData();
 
@@ -653,6 +880,6 @@ async function sendLB() {
     setInterval(saveTicketData, 5 * 60 * 1000);
 
     // interval to send lb
-    setInterval(sendLB, 24 * 60 * 60 * 1000)
+    setInterval(sendLB, 24*60*60*1000)
     console.log(`⚡️ Slack Bolt app is running!`);
 })();
