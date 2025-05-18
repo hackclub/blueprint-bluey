@@ -5,6 +5,7 @@
   "description": "",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "prestart": "npx drizzle-kit push",
     "start": "npm install; npx tsx ./src/index.ts"
   },
   "author": "",

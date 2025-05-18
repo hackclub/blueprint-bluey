@@ -407,7 +407,6 @@ async function resolveTicket(ticketTs: string, resolver: string, client, logger)
 
 // Listen for messages in the help channel to create tickets
 app.event('message', async ({ event, client, logger }) => {
-    console.log("message!")
     // Only process new messages in the help channel (not thread replies)
     if (event.channel !== HELP_CHANNEL || (event as any).thread_ts) return;
     if ((event as any).subtype) return; // Skip edited messages, etc.
@@ -418,7 +417,7 @@ app.event('message', async ({ event, client, logger }) => {
     await client.chat.postMessage({
         channel: event.channel,
         thread_ts: event.ts,
-        text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F08NW544FMM|Faq> and the "README before asking questions" section!`
+        text: `:wave-pikachu-2: Thank you for creating a ticket! Someone will help you soon. Make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F08NW544FMM|Faq> to see if it answers your question!`
     })
 
     event = event as GenericMessageEvent;
