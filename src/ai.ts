@@ -83,6 +83,11 @@ Return format:
     }
   ]
 }
+
+If you do not find any question/answer pairs, return:
+{
+  "qa_pairs": []
+}
 `.trim(),
       },
       {

@@ -711,23 +711,6 @@ const storeThread = async (thread: MessageElement[]) => {
     console.log("Stored question:", question);
   }
 };
-// for (const msg of previousMessages.messages ?? []) {
-//   if (msg.reactions && msg.reactions.length > 0) {
-//     if (msg.reactions.some((r) => r.name === "white_check_mark")) {
-//       if (!msg.ts) continue;
-
-//       const replies = await app.client.conversations.replies({
-//         channel: HELP_CHANNEL,
-//         ts: msg.ts,
-//       });
-
-//       const thread = replies.messages;
-//       if (!thread) continue;
-
-//       await storeThread(thread);
-//     }
-//   }
-// }
 
 // Start the app
 (async () => {
@@ -735,6 +718,24 @@ const storeThread = async (thread: MessageElement[]) => {
     const previousMessages = await app.client.conversations.history({
         channel: HELP_CHANNEL,
     });
+
+    for (const msg of previousMessages.messages ?? []) {
+    if (msg.reactions && msg.reactions.length > 0) {
+        if (msg.reactions.some((r) => r.name === "white_check_mark")) {
+        if (!msg.ts) continue;
+
+        const replies = await app.client.conversations.replies({
+            channel: HELP_CHANNEL,
+            ts: msg.ts,
+        });
+
+        const thread = replies.messages;
+        if (!thread) continue;
+
+        await storeThread(thread);
+        }
+    }
+    }
     
     // Load ticket data from file before starting the app
     await loadTicketData();
