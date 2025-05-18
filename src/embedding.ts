@@ -1,7 +1,10 @@
 import OpenAI from "openai";
+import * as dotenv from 'dotenv';
+
+dotenv.config();
 
 const embeddingsClient = new OpenAI({
-    apiKey: Bun.env["OPENAI_API_KEY"],
+    apiKey: process.env.OPENAI_API_KEY!,
 });
 
 export const generateEmbedding = async (text: string) => {
