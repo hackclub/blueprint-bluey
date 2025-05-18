@@ -651,11 +651,16 @@ app.action('ai_mark_resolved', async ({ body, ack, client, logger }) => {
     const messageTs = (body as any).message.thread_ts || (body as any).message.ts;
     
     try {
-        await client.reactions.add({
-            channel: channelId,
-            timestamp: messageTs,
-            name: "white_check_mark"
-        });
+        try {
+            await client.reactions.add({
+                channel: channelId,
+                timestamp: messageTs,
+                name: "white_check_mark"
+            });
+        }
+        catch (error) {
+            logger.error("Error adding reaction:", error);
+        }
 
         const ticket = getTicketByOriginalTs(messageTs);
         if (ticket) {
