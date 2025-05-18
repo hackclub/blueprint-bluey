@@ -5,11 +5,47 @@ import { generateEmbedding } from "./embedding";
 import { db } from "./db";
 import { questionsTable, citationsTable } from "./schema";
 import { sql, cosineDistance, desc } from "drizzle-orm";
-import type { ChatCompletionMessageParam } from "openai/resources.mjs";
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+  ChatCompletionToolChoiceOption,
+} from "openai/resources.mjs";
+import * as dotenv from 'dotenv';
+
+dotenv.config();
 
 const openai = new OpenAI({
   baseURL: "https://ai.hackclub.com",
 });
+
+
+// Function to determine if text is a question using AI
+async function isQuestionAI(text: string): Promise<boolean> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "", //google/gemini-2.0-flash-001",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Determine if the following text is a question that requires information. Respond with only 'true' or 'false'.",
+        },
+        {
+          role: "user",
+          content: text,
+        },
+      ],
+      temperature: 0.1,
+    });
+
+    const result = response.choices[0]?.message.content?.trim().toLowerCase();
+    return result === "true";
+  } catch (error) {
+    console.error("Error determining if text is a question:", error);
+    // Default to treating it as a question if there's an error
+    return true;
+  }
+}
 
 export type QuestionAnswerPair = {
   question: string;
@@ -19,11 +55,12 @@ export type QuestionAnswerPair = {
 
 export const parseQAs = async (thread: MessageElement[]) => {
   const completion = await openai.chat.completions.create({
-    model: "", // not used
+    model: "",//google/gemini-2.0-flash-exp:free",
     messages: [
       {
         role: "system",
-        content: `
+        content:
+          `
 You are a Slack thread parser for a help desk. Given a Slack thread, extract question/answer pairs.
 
 Guidelines:
@@ -35,6 +72,17 @@ Guidelines:
 - Skip unclear questions
 - Keep responses concise
 - Omit questions when in doubt
+
+Return format:
+{
+  "qa_pairs": [
+    {
+      "question": "The paraphrased question",
+      "answer": "The paraphrased answer",
+      "citations": [1, 2, 3]
+    }
+  ]
+}
 `.trim(),
       },
       {
@@ -105,6 +153,12 @@ Guidelines:
 
   return processedPairs;
 };
+
+interface Tool {
+  name: string;
+  description: string;
+  execute: (args: any) => Promise<any>;
+}
 
 const searchSimilarQuestions = async (query: string, limit = 3) => {
   try {
