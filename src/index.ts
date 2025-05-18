@@ -346,7 +346,7 @@ async function markTicketAsNotSure(userId: string, ticketTs: string, client, log
 }
 
 // Function to resolve (delete) a ticket
-async function resolveTicket(ticketTs: string, resolver: string, client, logger) {
+async function resolveTicket(ticketTs: string, resolver: string, client, logger, ai: boolean = false) {
     try {
         const ticket = getTicketByTicketTs(ticketTs);
         if (!ticket) return false;
@@ -367,7 +367,7 @@ async function resolveTicket(ticketTs: string, resolver: string, client, logger)
                 await client.chat.postMessage({
                     channel: ticket.originalChannel,
                     thread_ts: ticket.originalTs,
-                    text: `This ticket has been marked as resolved. Please send a new message in <#${HELP_CHANNEL}> to create a new ticket. (new ticket = faster response)`
+                    text: `:white_check_mark: This ticket has been marked as resolved. Please send a new message in <#${HELP_CHANNEL}> to create a new ticket if you have another question. ${ai ? "" : "You're welcome to continue asking follow-up questions in this thread!"}`
                 });
             }
         } catch (error) {
@@ -436,23 +436,67 @@ app.event('message', async ({ event, client, logger }) => {
         channel: event.channel,
         thread_ts: event.ts,
         text: answer.answer,
+        unfurl_links: true,
+        unfurl_media: true,
         blocks: [
-        {
-            type: "markdown",
-            text: answer.answer,
-        },
-        {
-            type: "divider",
-        },
-        {
-            type: "section",
-            text: {
-            type: "mrkdwn",
-            text: `Sources: ${answer.sources
-                ?.map((s, i) => `<${s}|#${i + 1}>`)
-                .join(" ")}`,
+            // {
+            //     type: "markdown",
+            //     text: answer.answer,
+            // },
+            // {
+            //     type: "divider",
+            // },
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `Here are some previous answers to similar questions I found: ${answer.sources
+                        ?.map((s, i) => `<${s}|#${i + 1}>`)
+                        .join(" ")}`,
+                },
             },
-        },
+        ],
+    });
+    await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: event.ts,
+        text: answer.answer,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: "Does that answer your question?",
+                },
+            },
+            {
+                type: "actions",
+                //@ts-ignore
+                elements: [
+                    {
+                        type: "button",
+                        style: "primary",
+                        text: {
+                            type: "plain_text",
+                            text: "Yes",
+                            emoji: true
+                        },
+                        value: "answer_helped_button",
+                        action_id: "ai_mark_resolved"
+                    },
+                    // {
+                    //     type: "button",
+                    //     style: "danger",
+                    //     text: {
+                    //         type: "plain_text",
+                    //         text: "No",
+                    //         emoji: true
+                    //     },
+                    //     value: "answer_didnt_help_button",
+                    //     action_id: "respond_didnt_help"
+                    // }
+                ]
+            }
         ],
     });
 });
@@ -596,6 +640,32 @@ app.action('hide_ai_response', async ({ body, ack, client, logger }) => {
     const success = await updateTicketMessage(ticket, client, logger, false);
     if (success) {
         logger.info(`AI response for ticket ${ticketTs} hidden by ${userId}`);
+    }
+});
+
+app.action('ai_mark_resolved', async ({ body, ack, client, logger }) => {
+    await ack();
+
+    const userId = (body.user || {}).id;
+    const channelId = (body as any).channel.id;
+    const messageTs = (body as any).message.thread_ts || (body as any).message.ts;
+    
+    try {
+        await client.reactions.add({
+            channel: channelId,
+            timestamp: messageTs,
+            name: "white_check_mark"
+        });
+
+        const ticket = getTicketByOriginalTs(messageTs);
+        if (ticket) {
+            const success = await resolveTicket(ticket.ticketMessageTs, userId || "AI-resolved", client, logger, true);
+            if (success) {
+                logger.info(`Ticket ${ticket.ticketMessageTs} resolved by AI answer marked by user ${userId}`);
+            }
+        }
+    } catch (error) {
+        logger.error("Error in ai_mark_resolved:", error);
     }
 });
 
