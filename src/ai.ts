@@ -32,6 +32,14 @@ export const parseQAs = async (thread: MessageElement[]) => {
     (message) => message.user !== process.env.BOT_ID
   );
 
+  // Create index mapping from filtered to original thread
+  const indexMapping: number[] = [];
+  thread.forEach((message, index) => {
+    if (message.user !== process.env.BOT_ID) {
+      indexMapping.push(index);
+    }
+  });
+
   while (numTries < maxTries) {
     try {
       const completion = await openai.chat.completions.create({
@@ -136,6 +144,13 @@ export const parseQAs = async (thread: MessageElement[]) => {
         ...pair,
         question: stripId(pair.question),
         answer: stripId(pair.answer),
+        // Map filtered thread citations to original thread indices
+        citations: pair.citations.map((citation) => {
+          const filteredIndex = citation - 1; // Convert from 1-indexed to 0-indexed
+          return indexMapping[filteredIndex] !== undefined
+            ? indexMapping[filteredIndex] + 1
+            : citation; // Convert back to 1-indexed or fallback to original citation
+        }),
       }));
 
       return processedPairs;
@@ -162,7 +177,7 @@ const searchSimilarQuestions = async (query: string, limit = 3) => {
   try {
     const queryEmbedding = await generateEmbedding(query);
 
-    if (!queryEmbedding) {
+    if (queryEmbedding === null) {
       return { error: "Failed to generate embedding for query" };
     }
 
