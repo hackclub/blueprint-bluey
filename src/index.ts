@@ -721,11 +721,15 @@ app.event('reaction_added', async ({ event, client, logger }) => {
                 const success = await resolveTicket(ticket.ticketMessageTs, reactionEvent.user, client, logger);
                 if (success) {
                     logger.info(`Ticket resolved via reaction by ${reactionEvent.user} (${isOriginalAuthor ? 'original author' : 'support team member'})`);
-                    client.reactions.add({
-                        name: "white_check_mark",
-                        timestamp: reactionEvent.item.ts,
-                        channel: reactionEvent.item.channel,
-                    });
+                    try {
+                        client.reactions.add({
+                            name: "white_check_mark",
+                            timestamp: reactionEvent.item.ts,
+                            channel: reactionEvent.item.channel,
+                        });
+                    } catch (error) {
+                        logger.error("Error adding reaction:", error);
+                    }
                 }
             } else {
                 logger.info(`User ${reactionEvent.user} tried to resolve a ticket via reaction but is not authorized`);
