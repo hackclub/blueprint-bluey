@@ -391,6 +391,7 @@ async function resolveTicket(ticketTs: string,resolver:string, client, logger) {
 
 // Listen for messages in the help channel to create tickets
 app.event('message', async ({ event, client, logger }) => {
+    console.log("message!")
     // Only process new messages in the help channel (not thread replies)
     if (event.channel !== HELP_CHANNEL || (event as any).thread_ts) return;
     if ((event as any).subtype) return; // Skip edited messages, etc.
