@@ -9,7 +9,10 @@ const detailsData = fs.readFileSync("lib/details.md").toString(); // Added detai
 // Define channel IDs from env vars
 const HELP_CHANNEL = process.env.HELP_CHANNEL!;
 const TICKETS_CHANNEL = process.env.TICKETS_CHANNEL!;
-const DATA_FILE_PATH = path.join(__dirname, "ticket-data.json");
+const DATA_FILE_PATH = path.join(
+  process.env.DATA_DIR || __dirname,
+  "ticket-data.json"
+);
 const AI_ENDPOINT = process.env.AI_ENDPOINT || "error: AI_ENDPOINT not set";
 
 // In-memory mapping of ticket message IDs to original message info
