@@ -1,14 +1,14 @@
 display_information:
-  name: Help Ticket Bot
-  description: Manages help tickets and assigns them to team members.
-  background_color: "#3076a6"
+  name: Bluey
+  description: i help track blueprint questions!!
+  background_color: "#0e305b"
 features:
   app_home:
     home_tab_enabled: true
     messages_tab_enabled: true
     messages_tab_read_only_enabled: true
   bot_user:
-    display_name: Help Ticket Bot
+    display_name: Bluey
     always_online: false
 oauth_config:
   scopes:
