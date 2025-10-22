@@ -424,7 +424,7 @@ app.event('message', async ({ event, client, logger }) => {
     }
 
     await createTicket(message, client, logger);
-    // send message
+    // send welcome message
     await client.chat.postMessage({
         channel: event.channel,
         thread_ts: event.ts,
