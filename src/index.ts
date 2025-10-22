@@ -1,6 +1,6 @@
 // test- ignore me
-import { App, LogLevel } from '@slack/bolt';
-import { WebClient, type GenericMessageEvent, type Logger } from "@slack/web-api";
+import { App, LogLevel, type BlockAction } from '@slack/bolt';
+import { WebClient, type GenericMessageEvent, type KnownBlock, type Logger } from "@slack/web-api";
 import { answerQuestion, parseQAs } from "./ai";
 import { generateEmbedding } from "./embedding";
 import { db } from "./db";
@@ -10,6 +10,7 @@ import type { MessageElement } from "@slack/web-api/dist/types/response/Conversa
 import * as dotenv from 'dotenv';
 import * as fs from 'fs-extra';
 import * as path from 'path';
+import type { Block } from 'typescript';
 
 dotenv.config();
 const faqData = fs.readFileSync("lib/faq.md").toString()
@@ -246,7 +247,7 @@ async function createTicket(message: { text: string; ts: string; channel: string
             ));
         } catch (parseError) {
             console.error("Failed to parse AI response:", parseError);
-            aiResponse = {  response: "I couldn't generate a response. Please try again or contact a staff member directly."  };
+            aiResponse = { response: "I couldn't generate a response. Please try again or contact a staff member directly." };
         }
 
         // Post the ticket message to the tickets channel
@@ -391,8 +392,8 @@ async function resolveTicket(ticketTs: string, resolver: string, client: WebClie
             existing.count_of_tickets += 1;
         } else {
             newEntry.push({
-            slack_id: resolver,
-            count_of_tickets: 1
+                slack_id: resolver,
+                count_of_tickets: 1
             });
         }
         lbForToday = newEntry; // Assign the updated array back
@@ -408,18 +409,20 @@ async function resolveTicket(ticketTs: string, resolver: string, client: WebClie
 
 // Listen for messages in the help channel to create tickets
 app.event('message', async ({ event, client, logger }) => {
-    if (event.channel !== HELP_CHANNEL || (event as any).thread_ts) return;
-    
+    if (event.channel !== HELP_CHANNEL) return;
+
     // but allow images uploads 
-    if ((event as any).subtype && (event as any).subtype !== 'file_share') return;
+    if (event.subtype && event.subtype !== 'file_share') return;
+
+    if (event.thread_ts) return;
 
     const message = event as { text: string; ts: string; channel: string; user: string };
-    
+
     // non-empty text
-    if (!message.text && (event as any).subtype === 'file_share') {
+    if (!message.text && event.subtype === 'file_share') {
         message.text = "[Image/File uploaded]";
     }
-    
+
     await createTicket(message, client, logger);
     // send message
     await client.chat.postMessage({
@@ -428,9 +431,6 @@ app.event('message', async ({ event, client, logger }) => {
         text: `:wave-pikachu-2: Thank you for creating a ticket! Someone will help you soon. Make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F08NW544FMM|Faq> to see if it answers your question!`
     })
 
-    event = event as GenericMessageEvent;
-
-    // TODO: fix type
     const text = extractPlaintextFromMessage({
         blocks: event.blocks ?? [],
     } as any);
@@ -440,30 +440,25 @@ app.event('message', async ({ event, client, logger }) => {
     console.log(answer);
     if (!answer.hasAnswer) return;
 
+    const messageBlocks = [
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `Here are some previous answers to similar questions I found: ${answer.sources
+                    ?.map((s, i) => `<${s}|#${i + 1}>`)
+                    .join(" ")}`,
+            },
+        },
+    ];
+
     await client.chat.postMessage({
         channel: event.channel,
         thread_ts: event.ts,
         text: answer.answer,
         unfurl_links: true,
         unfurl_media: true,
-        blocks: [
-            // {
-            //     type: "markdown",
-            //     text: answer.answer,
-            // },
-            // {
-            //     type: "divider",
-            // },
-            {
-                type: "section",
-                text: {
-                    type: "mrkdwn",
-                    text: `Here are some previous answers to similar questions I found: ${answer.sources
-                        ?.map((s, i) => `<${s}|#${i + 1}>`)
-                        .join(" ")}`,
-                },
-            },
-        ],
+        blocks: messageBlocks,
     });
     await client.chat.postMessage({
         channel: event.channel,
@@ -479,7 +474,6 @@ app.event('message', async ({ event, client, logger }) => {
             },
             {
                 type: "actions",
-                //@ts-ignore
                 elements: [
                     {
                         type: "button",
@@ -512,8 +506,9 @@ app.event('message', async ({ event, client, logger }) => {
 // Listen for thread replies in the help channel to handle claims
 app.event('message', async ({ event, client, logger }) => {
     // Only process thread replies in the help channel
-    if (!((event as any).thread_ts) || event.channel !== HELP_CHANNEL || (event as any).thread_ts === event.ts) return;
-    if ((event as any).subtype) return; // Skip edited messages, etc.
+    if (event.subtype) return; // Skip edited messages, etc.
+    if (!(event.thread_ts) || event.channel !== HELP_CHANNEL || event.thread_ts === event.ts) return;
+
 
     const threadReply = event as { thread_ts: string; user: string };
 
@@ -539,6 +534,11 @@ app.event('message', async ({ event, client, logger }) => {
 app.action('mark_resolved', async ({ body, ack, client, logger }) => {
     await ack();
 
+    if (body.type!=='block_actions') {
+        logger.warn('Unexpected body type for mark_resolved action');
+        return;
+    }
+
     const userId = (body.user || {}).id;
     // Skip if user is not a member of the tickets channel
     if (!isTicketChannelMember(userId)) {
@@ -546,7 +546,7 @@ app.action('mark_resolved', async ({ body, ack, client, logger }) => {
         return;
     }
 
-    const ticketTs = (body as any).message?.ts;
+    const ticketTs = body.message?.ts;
     if (!ticketTs) return;
 
     const success = await resolveTicket(ticketTs, userId, client, logger);
@@ -559,7 +559,12 @@ app.action('mark_resolved', async ({ body, ack, client, logger }) => {
 app.action('not_sure', async ({ body, ack, client, logger }) => {
     await ack();
 
-    const ticketTs = (body as any).message?.ts;
+    if (body.type!=='block_actions') {
+        logger.warn('Unexpected body type for mark_resolved action');
+        return;
+    }
+
+    const ticketTs = body.message?.ts;
     const userId = (body.user || {}).id;
 
     if (!ticketTs || !userId) return;
@@ -580,6 +585,12 @@ app.action('not_sure', async ({ body, ack, client, logger }) => {
 app.action('assign_user', async ({ body, ack, client, logger }) => {
     await ack();
 
+    if (body.type!=='block_actions') {
+        logger.warn('Unexpected body type for mark_resolved action');
+        return;
+    }
+    
+
     const userId = (body.user || {}).id;
     // Skip if user is not a member of the tickets channel
     if (!isTicketChannelMember(userId)) {
@@ -587,8 +598,15 @@ app.action('assign_user', async ({ body, ack, client, logger }) => {
         return;
     }
 
-    const ticketTs = (body as any).message?.ts;
-    const selectedUser = (body as any).actions?.[0]?.selected_user as string;
+    const ticketTs = body .message?.ts;
+
+    const action = body.actions?.[0];
+    if (!action || action.type !== 'users_select') {
+        logger.warn('Action is not a users_select action');
+        return;
+    }
+
+    const selectedUser = action.selected_user;
 
     if (!ticketTs || !selectedUser) return;
 
@@ -612,13 +630,18 @@ app.action('assign_user', async ({ body, ack, client, logger }) => {
 app.action('show_ai_response', async ({ body, ack, client, logger }) => {
     await ack();
 
+    if (body.type!=='block_actions') {
+        logger.warn('Unexpected body type for mark_resolved action');
+        return;
+    }
+
     const userId = (body.user || {}).id;
     if (!isTicketChannelMember(userId)) {
         logger.info(`User ${userId} tried to show AI response but is not in the tickets channel`);
         return;
     }
 
-    const ticketTs = (body as any).message?.ts;
+    const ticketTs = body.message?.ts;
     if (!ticketTs) return;
 
     const ticket = getTicketByTicketTs(ticketTs);
@@ -633,13 +656,18 @@ app.action('show_ai_response', async ({ body, ack, client, logger }) => {
 app.action('hide_ai_response', async ({ body, ack, client, logger }) => {
     await ack();
 
+    if (body.type!=='block_actions') {
+        logger.warn('Unexpected body type for mark_resolved action');
+        return;
+    }
+
     const userId = (body.user || {}).id;
     if (!isTicketChannelMember(userId)) {
         logger.info(`User ${userId} tried to hide AI response but is not in the tickets channel`);
         return;
     }
 
-    const ticketTs = (body as any).message?.ts;
+    const ticketTs = body.message?.ts;
     if (!ticketTs) return;
 
     const ticket = getTicketByTicketTs(ticketTs);
@@ -654,10 +682,20 @@ app.action('hide_ai_response', async ({ body, ack, client, logger }) => {
 app.action('ai_mark_resolved', async ({ body, ack, client, logger }) => {
     await ack();
 
+    if (body.type!=='block_actions') {
+        logger.warn('Unexpected body type for mark_resolved action');
+        return;
+    }
+
     const userId = (body.user || {}).id;
-    const channelId = (body as any).channel.id;
-    const messageTs = (body as any).message.thread_ts || (body as any).message.ts;
-    
+    const channelId = body.channel?.id;
+    const messageTs = body.message?.thread_ts || body.message?.ts;
+
+    if (!channelId || !messageTs) {
+        logger.warn('Missing channelId or messageTs in ai_mark_resolved action');
+        return;
+    }
+
     try {
         try {
             await client.reactions.add({
@@ -782,82 +820,82 @@ async function sendLB() {
 }
 
 const storeThread = async (thread: MessageElement[]) => {
-  const qas = await parseQAs(thread);
-  if (!qas || qas.length === 0) return;
+    const qas = await parseQAs(thread);
+    if (!qas || qas.length === 0) return;
 
-  for (const qa of qas) {
-    const embedding = await generateEmbedding(qa.question);
-    if (!embedding) continue;
+    for (const qa of qas) {
+        const embedding = await generateEmbedding(qa.question);
+        if (!embedding) continue;
 
-    const question = qa.question;
-    const answer = qa.answer;
-    const citations = qa.citations;
+        const question = qa.question;
+        const answer = qa.answer;
+        const citations = qa.citations;
 
-    // Store citation content and get citation IDs
-    const citationIds = [];
+        // Store citation content and get citation IDs
+        const citationIds = [];
 
-    for (const c of citations) {
-      const messageIndex = c - 1;
-      if (!thread[messageIndex] || !thread[messageIndex].ts) continue;
+        for (const c of citations) {
+            const messageIndex = c - 1;
+            if (!thread[messageIndex] || !thread[messageIndex].ts) continue;
 
-      const message = thread[messageIndex];
-      const messageTs = message.ts!;
-      const content = extractPlaintextFromMessage(message as any);
+            const message = thread[messageIndex];
+            const messageTs = message.ts!;
+            const content = extractPlaintextFromMessage(message);
 
-      // Get username from either the real_name, name, or user_id
-      let username = "Unknown User";
-      if (message.user) {
-        try {
-          // Try to get user info
-          const userInfo = await app.client.users.info({
-            user: message.user,
-          });
+            // Get username from either the real_name, name, or user_id
+            let username = "Unknown User";
+            if (message.user) {
+                try {
+                    // Try to get user info
+                    const userInfo = await app.client.users.info({
+                        user: message.user,
+                    });
 
-          if (userInfo.user) {
-            username =
-              userInfo.user.real_name || userInfo.user.name || message.user;
-          } else {
-            username = message.user;
-          }
-        } catch (error) {
-          console.error("Error fetching user info:", error);
-          username = message.user;
+                    if (userInfo.user) {
+                        username =
+                            userInfo.user.real_name || userInfo.user.name || message.user;
+                    } else {
+                        username = message.user;
+                    }
+                } catch (error) {
+                    console.error("Error fetching user info:", error);
+                    username = message.user;
+                }
+            }
+
+            const permalinkRes = await app.client.chat.getPermalink({
+                channel: HELP_CHANNEL,
+                message_ts: messageTs,
+            });
+
+            const permalink = permalinkRes.permalink!;
+
+            // Insert citation into citations table
+            const [citationRecord] = await db
+                .insert(citationsTable)
+                .values({
+                    permalink,
+                    content: content || "No content available",
+                    timestamp: messageTs,
+                    username,
+                })
+                .returning({ id: citationsTable.id });
+
+            if (citationRecord) {
+                citationIds.push(citationRecord.id);
+            }
         }
-      }
 
-      const permalinkRes = await app.client.chat.getPermalink({
-        channel: HELP_CHANNEL,
-        message_ts: messageTs,
-      });
+        // Insert question with citation IDs
+        await db.insert(questionsTable).values({
+            question,
+            answer,
+            citationIds,
+            embedding,
+        });
 
-      const permalink = permalinkRes.permalink!;
-
-      // Insert citation into citations table
-      const [citationRecord] = await db
-        .insert(citationsTable)
-        .values({
-          permalink,
-          content: content || "No content available",
-          timestamp: messageTs,
-          username,
-        })
-        .returning({ id: citationsTable.id });
-
-      if (citationRecord) {
-        citationIds.push(citationRecord.id);
-      }
+        console.log("Stored question:", question);
     }
-
-    // Insert question with citation IDs
-    await db.insert(questionsTable).values({
-      question,
-      answer,
-      citationIds,
-      embedding,
-    });
-
-    console.log("Stored question:", question);
-  }
 };
 
 // Start the app
@@ -868,23 +906,23 @@ const storeThread = async (thread: MessageElement[]) => {
     });
 
     for (const msg of previousMessages.messages ?? []) {
-    if (msg.reactions && msg.reactions.length > 0) {
-        if (msg.reactions.some((r) => r.name === "white_check_mark")) {
-        if (!msg.ts) continue;
+        if (msg.reactions && msg.reactions.length > 0) {
+            if (msg.reactions.some((r) => r.name === "white_check_mark")) {
+                if (!msg.ts) continue;
 
-        const replies = await app.client.conversations.replies({
-            channel: HELP_CHANNEL,
-            ts: msg.ts,
-        });
+                const replies = await app.client.conversations.replies({
+                    channel: HELP_CHANNEL,
+                    ts: msg.ts,
+                });
 
-        const thread = replies.messages;
-        if (!thread) continue;
+                const thread = replies.messages;
+                if (!thread) continue;
 
-        await storeThread(thread);
+                await storeThread(thread);
+            }
         }
     }
-    }
-    
+
     // Load ticket data from file before starting the app
     await loadTicketData();
 
@@ -901,6 +939,6 @@ const storeThread = async (thread: MessageElement[]) => {
     setInterval(saveTicketData, 5 * 60 * 1000);
 
     // interval to send lb
-    setInterval(sendLB, 24*60*60*1000)
+    setInterval(sendLB, 24 * 60 * 60 * 1000)
     console.log(`⚡️ Slack Bolt app is running!`);
 })();
