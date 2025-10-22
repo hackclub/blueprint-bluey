@@ -111,7 +111,7 @@ function formatTs(ts: string): string {
 }
 
 function createTicketBlocks(AIQuickResponse: string, originalMessageChannelID: string, originalMessageTs: string, claimText?: string, showAIResponse: boolean = false): any[] {
-    const headerText = claimText ? claimText : 'Not Claimed';
+    const headerText = claimText ?? 'Not Claimed';
 
     // Start with the header section
     const blocks = [
@@ -423,8 +423,10 @@ app.event('message', async ({ event, client, logger }) => {
         message.text = "[Image/File uploaded]";
     }
 
+
+
     await createTicket(message, client, logger);
-    // send message
+    // send welcome message
     await client.chat.postMessage({
         channel: event.channel,
         thread_ts: event.ts,
@@ -524,9 +526,35 @@ app.event('message', async ({ event, client, logger }) => {
     if (ticket) {
         // Use the claimTicket function to claim the ticket
         const success = await claimTicket(threadReply.user, ticket.ticketMessageTs, client, logger);
-        if (success) {
-            logger.info(`Ticket ${ticket.ticketMessageTs} claimed by ${threadReply.user}`);
+        if (!success) {
+            return;
         }
+        logger.info(`Ticket ${ticket.ticketMessageTs} claimed by ${threadReply.user}`);
+
+
+        const blocks = [
+            {
+                type: "actions",
+                elements: [
+                    {
+                        type: "button",
+                        style: "primary",
+                        text: {
+                            type: "plain_text",
+                            text: "Mark Resolved",
+                            emoji: true
+                        },
+                        value: "claim_button",
+                        action_id: "mark_resolved"
+                    }
+                ]
+            }
+        ];
+        client.chat.postMessage({
+            channel: HELP_CHANNEL,
+            thread_ts: threadReply.thread_ts,
+            blocks
+        });
     }
 });
 
@@ -534,7 +562,7 @@ app.event('message', async ({ event, client, logger }) => {
 app.action('mark_resolved', async ({ body, ack, client, logger }) => {
     await ack();
 
-    if (body.type!=='block_actions') {
+    if (body.type !== 'block_actions') {
         logger.warn('Unexpected body type for mark_resolved action');
         return;
     }
@@ -559,7 +587,7 @@ app.action('mark_resolved', async ({ body, ack, client, logger }) => {
 app.action('not_sure', async ({ body, ack, client, logger }) => {
     await ack();
 
-    if (body.type!=='block_actions') {
+    if (body.type !== 'block_actions') {
         logger.warn('Unexpected body type for mark_resolved action');
         return;
     }
@@ -585,11 +613,11 @@ app.action('not_sure', async ({ body, ack, client, logger }) => {
 app.action('assign_user', async ({ body, ack, client, logger }) => {
     await ack();
 
-    if (body.type!=='block_actions') {
+    if (body.type !== 'block_actions') {
         logger.warn('Unexpected body type for mark_resolved action');
         return;
     }
-    
+
 
     const userId = (body.user || {}).id;
     // Skip if user is not a member of the tickets channel
@@ -598,7 +626,7 @@ app.action('assign_user', async ({ body, ack, client, logger }) => {
         return;
     }
 
-    const ticketTs = body .message?.ts;
+    const ticketTs = body.message?.ts;
 
     const action = body.actions?.[0];
     if (!action || action.type !== 'users_select') {
@@ -630,7 +658,7 @@ app.action('assign_user', async ({ body, ack, client, logger }) => {
 app.action('show_ai_response', async ({ body, ack, client, logger }) => {
     await ack();
 
-    if (body.type!=='block_actions') {
+    if (body.type !== 'block_actions') {
         logger.warn('Unexpected body type for mark_resolved action');
         return;
     }
@@ -656,7 +684,7 @@ app.action('show_ai_response', async ({ body, ack, client, logger }) => {
 app.action('hide_ai_response', async ({ body, ack, client, logger }) => {
     await ack();
 
-    if (body.type!=='block_actions') {
+    if (body.type !== 'block_actions') {
         logger.warn('Unexpected body type for mark_resolved action');
         return;
     }
@@ -682,7 +710,7 @@ app.action('hide_ai_response', async ({ body, ack, client, logger }) => {
 app.action('ai_mark_resolved', async ({ body, ack, client, logger }) => {
     await ack();
 
-    if (body.type!=='block_actions') {
+    if (body.type !== 'block_actions') {
         logger.warn('Unexpected body type for mark_resolved action');
         return;
     }
