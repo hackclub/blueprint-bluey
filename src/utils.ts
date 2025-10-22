@@ -1,11 +1,19 @@
 import type { MessageElement } from "@slack/web-api/dist/types/response/ConversationsRepliesResponse";
 
-export const extractPlaintextFromMessage = (message: MessageElement) =>
-  message.blocks
-    ?.flatMap((b) => b.elements ?? [])
-    .flatMap((s) => s.elements ?? [])
-    .map((e) => e.text ?? "")
+const isTextElement = (e: unknown): e is { text: string } =>
+  typeof (e as any)?.text === "string";
+
+export const extractPlaintextFromMessage = (message: MessageElement) => {
+  // collect into a neutral typed array so the predicate can narrow correctly
+  const elements = (message.blocks ?? [])
+    .flatMap((b) => b.elements ?? [])
+    .flatMap((s) => s.elements ?? []) as unknown[];
+
+  return elements
+    .filter(isTextElement)
+    .map((e) => e.text)
     .join("");
+};
 
 export const formatThread = (thread: MessageElement[]) => {
   return thread

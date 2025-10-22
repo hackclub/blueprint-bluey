@@ -1,6 +1,6 @@
 // test- ignore me
 import { App, LogLevel } from '@slack/bolt';
-import { type GenericMessageEvent } from "@slack/web-api";
+import { WebClient, type GenericMessageEvent, type Logger } from "@slack/web-api";
 import { answerQuestion, parseQAs } from "./ai";
 import { generateEmbedding } from "./embedding";
 import { db } from "./db";
@@ -196,7 +196,7 @@ function createTicketBlocks(AIQuickResponse: string, originalMessageChannelID: s
 }
 
 // Function to refresh the list of ticket channel members
-async function refreshTicketChannelMembers(client) {
+async function refreshTicketChannelMembers(client: WebClient) {
     try {
         const result = await client.conversations.members({
             channel: TICKETS_CHANNEL
@@ -221,7 +221,8 @@ function isTicketChannelMember(userId: string): boolean {
 // Function to get a ticket by its original thread timestamp
 function getTicketByOriginalTs(originalTs: string): TicketInfo | null {
     const ticketTs = ticketsByOriginalTs[originalTs];
-    return ticketTs ? tickets[ticketTs] : null;
+    if (!ticketTs) return null;
+    return tickets[ticketTs] ?? null;
 }
 
 // Function to get a ticket by its ticket timestamp
@@ -230,7 +231,7 @@ function getTicketByTicketTs(ticketTs: string): TicketInfo | null {
 }
 
 // Function to create a ticket
-async function createTicket(message: { text: string; ts: string; channel: string; user: string }, client, logger) {
+async function createTicket(message: { text: string; ts: string; channel: string; user: string }, client: WebClient, logger: Logger) {
     try {
         let aiResponse;
         try {
@@ -283,7 +284,7 @@ async function createTicket(message: { text: string; ts: string; channel: string
 }
 
 // Function to update a ticket message with new information
-async function updateTicketMessage(ticket: TicketInfo, client, logger, showAIResponse: boolean = false) {
+async function updateTicketMessage(ticket: TicketInfo, client: WebClient, logger: Logger, showAIResponse: boolean = false) {
     if (!ticket) return false;
 
     try {
@@ -321,7 +322,7 @@ async function updateTicketMessage(ticket: TicketInfo, client, logger, showAIRes
 }
 
 // Function to claim a ticket
-async function claimTicket(userId: string, ticketTs: string, client, logger) {
+async function claimTicket(userId: string, ticketTs: string, client: WebClient, logger: Logger) {
     const ticket = getTicketByTicketTs(ticketTs);
     if (!ticket) return false;
 
@@ -334,7 +335,7 @@ async function claimTicket(userId: string, ticketTs: string, client, logger) {
 }
 
 // Function to mark a ticket as "not sure"
-async function markTicketAsNotSure(userId: string, ticketTs: string, client, logger) {
+async function markTicketAsNotSure(userId: string, ticketTs: string, client: WebClient, logger: Logger) {
     const ticket = getTicketByTicketTs(ticketTs);
     if (!ticket) return false;
 
@@ -346,7 +347,7 @@ async function markTicketAsNotSure(userId: string, ticketTs: string, client, log
 }
 
 // Function to resolve (delete) a ticket
-async function resolveTicket(ticketTs: string, resolver: string, client, logger, ai: boolean = false) {
+async function resolveTicket(ticketTs: string, resolver: string, client: WebClient, logger: Logger, ai: boolean = false) {
     try {
         const ticket = getTicketByTicketTs(ticketTs);
         if (!ticket) return false;
@@ -385,13 +386,13 @@ async function resolveTicket(ticketTs: string, resolver: string, client, logger,
         delete ticketsByOriginalTs[ticket.originalTs];
         delete tickets[ticketTs];
         const newEntry = Array.from(lbForToday)
-        const existingEntryIndex = newEntry.findIndex(e => e.slack_id === resolver);
-        if (existingEntryIndex !== -1) {
-            newEntry[existingEntryIndex].count_of_tickets += 1;
+        const existing = newEntry.find(e => e.slack_id === resolver);
+        if (existing) {
+            existing.count_of_tickets += 1;
         } else {
             newEntry.push({
-                slack_id: resolver,
-                count_of_tickets: 1
+            slack_id: resolver,
+            count_of_tickets: 1
             });
         }
         lbForToday = newEntry; // Assign the updated array back
@@ -748,7 +749,7 @@ app.event('reaction_added', async ({ event, client, logger }) => {
 });
 
 // Fetch AI response from the Hack Club AI service
-async function fetchAIResponse(userInput) {
+async function fetchAIResponse(userInput: string) {
     try {
         const response = await fetch(AI_ENDPOINT, {
             method: 'POST',
@@ -761,10 +762,14 @@ async function fetchAIResponse(userInput) {
 
         if (!response.ok) { throw new Error("Failed to fetch AI response"); }
 
-        const data = await response.json();
-        return data.choices?.[0]?.message?.content || "Error: No response content";
+        interface AIChoice { message?: { content?: string } }
+        interface AIResponse { choices?: AIChoice[] }
+
+        const data = await response.json() as AIResponse;
+        return data.choices?.[0]?.message?.content ?? "Error: No response content";
+
     } catch (error) {
-        return `Error: ${error.message}`;
+        return `Error: ${error}`;
     }
 }
 async function sendLB() {
