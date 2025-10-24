@@ -129,7 +129,7 @@ const app = new App({
     token: process.env.SLACK_BOT_TOKEN,
     appToken: process.env.SLACK_APP_TOKEN,
     socketMode: true,
-    logLevel: LogLevel.INFO,
+    logLevel: LogLevel.WARN,
 });
 
 // Cache of ticket channel members (user IDs)
@@ -376,7 +376,7 @@ async function markTicketAsNotSure(userId: string, ticketTs: string, client: Web
 }
 
 // Function to resolve (delete) a ticket
-async function resolveTicket(ticketTs: string, threadTs:string, resolver: string, client: WebClient, logger: Logger, ai: boolean = false) {
+async function resolveTicket(ticketTs: string, resolver: string, client: WebClient, logger: Logger, ai: boolean = false) {
     try {
         const ticket = getTicketByTicketTs(ticketTs);
         if (!ticket) return false;
@@ -411,16 +411,6 @@ async function resolveTicket(ticketTs: string, threadTs:string, resolver: string
             ts: ticketTs
         });
 
-        //find bluey response to edit it
-        let replies=await client.conversations.replies({
-            ts: threadTs,
-            channel: TICKETS_CHANNEL,
-            limit:10
-        })
-
-        console.log('replies', replies);
-        //replies.messages?.find(e=>e.user)
-
         // Clean up our records
         delete ticketsByOriginalTs[ticket.originalTs];
         delete tickets[ticketTs];
@@ -447,13 +437,9 @@ async function resolveTicket(ticketTs: string, threadTs:string, resolver: string
 
 // Listen for messages in the help channel to create tickets
 app.event("message", async ({ event, client, logger }) => {
-    logger.info("nddot right channel");
-    console.log("nddot right channel");
     if (event.subtype) return; // Skip edited messages, etc.
     // Only process new messages in the help channel (not thread replies)
     if (event.channel !== HELP_CHANNEL || event.thread_ts) {
-        logger.info("not right channel");
-        console.log("not right channel");
         return;
     };
 
@@ -470,24 +456,6 @@ app.event("message", async ({ event, client, logger }) => {
         channel: event.channel,
         thread_ts: event.ts,
         text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F09HZ9MVD39|Faq> and the <https://blueprint.hackclub.com/faq|Site Faq>!`,
-        blocks: [
-            {
-                type: "actions",
-                elements: [
-                    {
-                        type: "button",
-                        style: "primary",
-                        text: {
-                            type: "plain_text",
-                            text: "Mark Resolved",
-                            emoji: true
-                        },
-                        value: "claim_button",
-                        action_id: "mark_resolved"
-                    }
-                ]
-            }
-        ]
     });
 
 
@@ -521,39 +489,6 @@ app.event('message', async ({ event, client, logger }) => {
     }
 });
 
-// Handle button action "Mark Resolved" in the issue thread
-app.action('mark_resolved_thread', async ({ body, ack, client, logger }) => {
-    await ack();
-
-    if (body.type !== 'block_actions') {
-        logger.warn('Unexpected body type for mark_resolved action');
-        return;
-    }
-
-    const userId = (body.user || {}).id;
-    // Skip if user is not a member of the tickets channel
-    if (!isTicketChannelMember(userId)) {
-        logger.info(`User ${userId} tried to resolve a ticket but is not in the tickets channel`);
-        return;
-    }
-
-    const threadTs = body.container?.thread_ts
-        || body.message?.thread_ts
-    if (!threadTs) return;
-
-    const ticket = getTicketByTicketTs(threadTs);
-    if (!ticket) return;
-
-    // Extract the actual message ts string that resolveTicket expects
-    const ticketTs = ticket.ticketMessageTs;
-    if (!ticketTs) return;
-
-    const success = await resolveTicket(ticketTs, threadTs, userId, client, logger);
-    if (success) {
-        logger.info(`Ticket ${ticketTs} marked as resolved (deleted) by ${userId}`);
-    }
-});
-
 // Handle button action "Mark Resolved"
 app.action('mark_resolved', async ({ body, ack, client, logger }) => {
     await ack();
@@ -573,11 +508,7 @@ app.action('mark_resolved', async ({ body, ack, client, logger }) => {
     const ticketTs = body.message?.ts;
     if (!ticketTs) return;
 
-    const ticket=getTicketByTicketTs(ticketTs);
-
-    if(!ticket) return;
-
-    const success = await resolveTicket(ticketTs, ticket.originalTs,userId, client, logger);
+    const success = await resolveTicket(ticketTs, userId, client, logger);
     if (success) {
         logger.info(`Ticket ${ticketTs} marked as resolved (deleted) by ${userId}`);
     }
@@ -709,8 +640,8 @@ app.action('hide_ai_response', async ({ body, ack, client, logger }) => {
 
 // Listen for reaction added events to resolve tickets
 app.event("reaction_added", async ({ event, client, logger }) => {
-    const reactionEvent = event as ReactionEvent;
-
+    const reactionEvent = event;
+    logger.info("Reaction added event received:", reactionEvent);
     // Skip if user is not a member of the tickets channel
     if (!isTicketChannelMember(reactionEvent.user)) {
         logger.info(
@@ -748,7 +679,6 @@ app.event("reaction_added", async ({ event, client, logger }) => {
             if (isOriginalAuthor || isTicketChannelMember(reactionEvent.user)) {
                 const success = await resolveTicket(
                     ticket.ticketMessageTs,
-                    ticket.originalTs,
                     reactionEvent.user,
                     client,
                     logger
@@ -828,6 +758,4 @@ async function sendLB() {
     // interval to send lb
     setInterval(sendLB, 24 * 60 * 60 * 1000);
     console.log(`⚡️ Slack Bolt app is running!`);
-
-    console.log('help channel id', HELP_CHANNEL, '\nticket channel id', TICKETS_CHANNEL);
 })();
