@@ -10,8 +10,8 @@ const detailsData = fs.readFileSync("lib/details.md").toString(); // Added detai
 const HELP_CHANNEL = process.env.HELP_CHANNEL!;
 const TICKETS_CHANNEL = process.env.TICKETS_CHANNEL!;
 const DATA_FILE_PATH = path.join(
-  process.env.DATA_DIR || __dirname,
-  "ticket-data.json"
+    process.env.DATA_DIR || __dirname,
+    "ticket-data.json"
 );
 const AI_ENDPOINT = process.env.AI_ENDPOINT || "error: AI_ENDPOINT not set";
 
@@ -107,89 +107,88 @@ function formatTs(ts: string): string {
 }
 
 function createTicketBlocks(
-  AIQuickResponse: string,
-  originalMessageChannelID: string,
-  originalMessageTs: string,
-  claimText?: string,
-  showAIResponse: boolean = false
+    AIQuickResponse: string,
+    originalMessageChannelID: string,
+    originalMessageTs: string,
+    claimText?: string,
+    showAIResponse: boolean = false
 ): any[] {
-  const headerText = claimText ? claimText : "Not Claimed";
+    const headerText = claimText ? claimText : "Not Claimed";
 
-  // Start with the header section
-  const blocks = [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*" + headerText + "*",
-        // emoji: true
-      },
-    },
-  ];
+    // Start with the header section
+    const blocks = [
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: "*" + headerText + "*",
+                // emoji: true
+            },
+        },
+    ];
 
-  if (showAIResponse) {
+    if (showAIResponse) {
+        blocks.push({
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `*Quick response:* ${AIQuickResponse}`,
+            },
+        });
+    }
+
+    // Add action buttons
     blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Quick response:* ${AIQuickResponse}`,
-      },
+        type: "actions",
+        //@ts-ignore
+        elements: [
+            {
+                type: "button",
+                style: "primary",
+                text: {
+                    type: "plain_text",
+                    text: "Mark Resolved",
+                    emoji: true,
+                },
+                value: "claim_button",
+                action_id: "mark_resolved",
+            },
+            {
+                type: "button",
+                style: "danger",
+                text: {
+                    type: "plain_text",
+                    text: "Seen, Not Sure",
+                    emoji: true,
+                },
+                value: "not_sure_button",
+                action_id: "not_sure",
+            },
+            {
+                type: "users_select",
+                placeholder: {
+                    type: "plain_text",
+                    text: "Assign (will DM assignee)",
+                    emoji: true,
+                },
+                action_id: "assign_user",
+            },
+        ],
     });
-  }
 
-  // Add action buttons
-  blocks.push({
-    type: "actions",
-    //@ts-ignore
-    elements: [
-      {
-        type: "button",
-        style: "primary",
+    // Add thread link
+    blocks.push({
+        type: "section",
         text: {
-          type: "plain_text",
-          text: "Mark Resolved",
-          emoji: true,
+            type: "mrkdwn",
+            text: `<https://${process.env.SLACK_WORKSPACE_DOMAIN || "yourworkspace.slack.com"
+                }.slack.com/archives/${originalMessageChannelID}/p${formatTs(
+                    originalMessageTs
+                )}|View Thread>`,
         },
-        value: "claim_button",
-        action_id: "mark_resolved",
-      },
-      {
-        type: "button",
-        style: "danger",
-        text: {
-          type: "plain_text",
-          text: "Seen, Not Sure",
-          emoji: true,
-        },
-        value: "not_sure_button",
-        action_id: "not_sure",
-      },
-      {
-        type: "users_select",
-        placeholder: {
-          type: "plain_text",
-          text: "Assign (will DM assignee)",
-          emoji: true,
-        },
-        action_id: "assign_user",
-      },
-    ],
-  });
+    });
 
-  // Add thread link
-  blocks.push({
-    type: "section",
-    text: {
-      type: "mrkdwn",
-      text: `<https://${
-        process.env.SLACK_WORKSPACE_DOMAIN || "yourworkspace.slack.com"
-      }.slack.com/archives/${originalMessageChannelID}/p${formatTs(
-        originalMessageTs
-      )}|View Thread>`,
-    },
-  });
-
-  return blocks;
+    return blocks;
 }
 
 // Function to refresh the list of ticket channel members
@@ -442,23 +441,28 @@ async function resolveTicket(
 
 // Listen for messages in the help channel to create tickets
 app.event("message", async ({ event, client, logger }) => {
-  // Only process new messages in the help channel (not thread replies)
-  if (event.channel !== HELP_CHANNEL || (event as any).thread_ts) return;
-  if ((event as any).subtype) return; // Skip edited messages, etc.
+    if (event.subtype) return; // Skip edited messages, etc.
+    // Only process new messages in the help channel (not thread replies)
+    if (event.channel !== HELP_CHANNEL || event.thread_ts) {
+        return;
+    };
 
-  const message = event as {
-    text: string;
-    ts: string;
-    channel: string;
-    user: string;
-  };
-  await createTicket(message, client, logger);
-  // send welcome message
-  await client.chat.postMessage({
-    channel: event.channel,
-    thread_ts: event.ts,
-    text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F09HZ9MVD39|Faq> and the <https://blueprint.hackclub.com/faq|Site Faq>!`,
-  });
+
+    const message = event as {
+        text: string;
+        ts: string;
+        channel: string;
+        user: string;
+    };
+    await createTicket(message, client, logger);
+    // send welcome message
+    let thread_message = await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: event.ts,
+        text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F09HZ9MVD39|Faq> and the <https://blueprint.hackclub.com/faq|Site Faq>!`,
+    });
+
+
 });
 
 // Listen for thread replies in the help channel to handle claims
@@ -632,70 +636,69 @@ app.action("hide_ai_response", async ({ body, ack, client, logger }) => {
 
 // Listen for reaction added events to resolve tickets
 app.event("reaction_added", async ({ event, client, logger }) => {
-  const reactionEvent = event as ReactionEvent;
-
-  // Skip if user is not a member of the tickets channel
-  if (!isTicketChannelMember(reactionEvent.user)) {
-    logger.info(
-      `User ${reactionEvent.user} tried to resolve a ticket via reaction but is not in the tickets channel`
-    );
-    return;
-  }
-
-  // Check for the check mark reaction in the help channel
-  if (
-    reactionEvent.reaction === "white_check_mark" &&
-    reactionEvent.item.channel === HELP_CHANNEL
-  ) {
-    // Get the ticket by its original timestamp
-    const ticket = getTicketByOriginalTs(reactionEvent.item.ts);
-    if (!ticket) return;
-
-    // Allow resolving if:
-    // 1. User is the original message author, OR
-    // 2. User is in the tickets channel
-    try {
-      // Get the original message to check the author
-      const messageInfo = await client.conversations.history({
-        channel: reactionEvent.item.channel,
-        latest: reactionEvent.item.ts,
-        limit: 1,
-        inclusive: true,
-      });
-
-      const isOriginalAuthor =
-        messageInfo.messages &&
-        messageInfo.messages[0] &&
-        messageInfo.messages[0].user === reactionEvent.user;
-
-      if (isOriginalAuthor || isTicketChannelMember(reactionEvent.user)) {
-        const success = await resolveTicket(
-          ticket.ticketMessageTs,
-          reactionEvent.user,
-          client,
-          logger
-        );
-        if (success) {
-          logger.info(
-            `Ticket resolved via reaction by ${reactionEvent.user} (${
-              isOriginalAuthor ? "original author" : "support team member"
-            })`
-          );
-          client.reactions.add({
-            name: "white_check_mark",
-            timestamp: reactionEvent.item.ts,
-            channel: reactionEvent.item.channel,
-          });
-        }
-      } else {
+    const reactionEvent = event;
+    logger.info("Reaction added event received:", reactionEvent);
+    // Skip if user is not a member of the tickets channel
+    if (!isTicketChannelMember(reactionEvent.user)) {
         logger.info(
-          `User ${reactionEvent.user} tried to resolve a ticket via reaction but is not authorized`
+            `User ${reactionEvent.user} tried to resolve a ticket via reaction but is not in the tickets channel`
         );
-      }
-    } catch (error) {
-      logger.error("Error checking message author:", error);
+        return;
     }
-  }
+
+    // Check for the check mark reaction in the help channel
+    if (
+        reactionEvent.reaction === "white_check_mark" &&
+        reactionEvent.item.channel === HELP_CHANNEL
+    ) {
+        // Get the ticket by its original timestamp
+        const ticket = getTicketByOriginalTs(reactionEvent.item.ts);
+        if (!ticket) return;
+
+        // Allow resolving if:
+        // 1. User is the original message author, OR
+        // 2. User is in the tickets channel
+        try {
+            // Get the original message to check the author
+            const messageInfo = await client.conversations.history({
+                channel: reactionEvent.item.channel,
+                latest: reactionEvent.item.ts,
+                limit: 1,
+                inclusive: true,
+            });
+
+            const isOriginalAuthor =
+                messageInfo.messages &&
+                messageInfo.messages[0] &&
+                messageInfo.messages[0].user === reactionEvent.user;
+
+            if (isOriginalAuthor || isTicketChannelMember(reactionEvent.user)) {
+                const success = await resolveTicket(
+                    ticket.ticketMessageTs,
+                    reactionEvent.user,
+                    client,
+                    logger
+                );
+                if (success) {
+                    logger.info(
+                        `Ticket resolved via reaction by ${reactionEvent.user} (${isOriginalAuthor ? "original author" : "support team member"
+                        })`
+                    );
+                    client.reactions.add({
+                        name: "white_check_mark",
+                        timestamp: reactionEvent.item.ts,
+                        channel: reactionEvent.item.channel,
+                    });
+                }
+            } else {
+                logger.info(
+                    `User ${reactionEvent.user} tried to resolve a ticket via reaction but is not authorized`
+                );
+            }
+        } catch (error) {
+            logger.error("Error checking message author:", error);
+        }
+    }
 });
 
 // Fetch AI response from the Hack Club AI service
@@ -745,20 +748,20 @@ async function sendLB() {
 
 // Start the app
 (async () => {
-  // Load ticket data from file before starting the app
-  await loadTicketData();
+    // Load ticket data from file before starting the app
+    await loadTicketData();
 
-  await app.start();
+    await app.start();
 
-  // Initialize the ticket channel members cache
-  const client = app.client;
-  await refreshTicketChannelMembers(client);
+    // Initialize the ticket channel members cache
+    const client = app.client;
+    await refreshTicketChannelMembers(client);
 
-  // Refresh the ticket channel members list every hour
-  setInterval(() => refreshTicketChannelMembers(client), 60 * 60 * 1000);
+    // Refresh the ticket channel members list every hour
+    setInterval(() => refreshTicketChannelMembers(client), 60 * 60 * 1000);
 
-  // Periodically save ticket data (every 5 minutes as a backup)
-  setInterval(saveTicketData, 5 * 60 * 1000);
+    // Periodically save ticket data (every 5 minutes as a backup)
+    setInterval(saveTicketData, 5 * 60 * 1000);
 
   // interval to send lb
   setInterval(sendLB, 24 * 60 * 60 * 1000);
