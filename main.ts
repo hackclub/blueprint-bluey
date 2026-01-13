@@ -443,7 +443,7 @@ async function resolveTicket(
 app.event("message", async ({ event, client, logger }) => {
     if (event.subtype) return; // Skip edited messages, etc.
     // Only process new messages in the help channel (not thread replies)
-    if (event.channel !== HELP_CHANNEL || event.thread_ts) {
+    if (event.channel !== HELP_CHANNEL || (event as any).thread_ts) {
         return;
     };
     // Ignore specific user
@@ -459,11 +459,36 @@ app.event("message", async ({ event, client, logger }) => {
         user: string;
     };
     await createTicket(message, client, logger);
-    // send welcome message
+    // send welcome message with resolve button
     let thread_message = await client.chat.postMessage({
         channel: event.channel,
         thread_ts: event.ts,
         text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F09HZ9MVD39|Faq> and the <https://blueprint.hackclub.com/faq|Site Faq>!`,
+        blocks: [
+            {
+                type: "section",
+                text: {
+                    type: "mrkdwn",
+                    text: `:hii: Thank you for creating a ticket someone will help you soon. make sure to read the <https://hackclub.slack.com/docs/T0266FRGM/F09HZ9MVD39|Faq> and the <https://blueprint.hackclub.com/faq|Site Faq>!`,
+                },
+            },
+            {
+                type: "actions",
+                elements: [
+                    {
+                        type: "button",
+                        text: {
+                            type: "plain_text",
+                            text: "Resolve My Ticket",
+                            emoji: true,
+                        },
+                        style: "primary",
+                        value: event.ts,
+                        action_id: "user_resolve_ticket",
+                    },
+                ],
+            },
+        ],
     });
 
 
@@ -482,13 +507,6 @@ app.event("message", async ({ event, client, logger }) => {
 
   const threadReply = event as { thread_ts: string; user: string };
 
-  // Skip if user is not a member of the tickets channel
-  if (!isTicketChannelMember(threadReply.user)) {
-    logger.info(
-      `User ${threadReply.user} tried to claim a ticket but is not in the tickets channel`
-    );
-    return;
-  }
 
   // Get the ticket by the original thread timestamp
   const ticket = getTicketByOriginalTs(threadReply.thread_ts);
@@ -506,6 +524,46 @@ app.event("message", async ({ event, client, logger }) => {
         `Ticket ${ticket.ticketMessageTs} claimed by ${threadReply.user}`
       );
     }
+  }
+});
+
+// Handle user resolve button (for ticket authors)
+app.action("user_resolve_ticket", async ({ body, ack, client, logger }) => {
+  await ack();
+
+  const userId = (body.user || {}).id;
+  const originalTs = (body as any).actions?.[0]?.value;
+
+  if (!originalTs || !userId) return;
+
+  // Get the ticket by original message timestamp
+  const ticket = getTicketByOriginalTs(originalTs);
+  if (!ticket) {
+    logger.info(`No ticket found for original message ${originalTs}`);
+    return;
+  }
+
+  // Verify the user is the original ticket author
+  try {
+    const messageInfo = await client.conversations.history({
+      channel: ticket.originalChannel,
+      latest: ticket.originalTs,
+      limit: 1,
+      inclusive: true,
+    });
+
+    const originalAuthor = messageInfo.messages?.[0]?.user;
+    if (originalAuthor !== userId) {
+      logger.info(`User ${userId} tried to resolve a ticket they don't own`);
+      return;
+    }
+
+    const success = await resolveTicket(ticket.ticketMessageTs, userId, client, logger);
+    if (success) {
+      logger.info(`Ticket ${ticket.ticketMessageTs} resolved by original author ${userId}`);
+    }
+  } catch (error) {
+    logger.error("Error resolving ticket via user button:", error);
   }
 });
 
